@@ -1,0 +1,3753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ISTS Transmission Charges 2021–2026</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+<script>
+// Smart total-label plugin — draws totals without overlapping
+// Strategy:
+//   • Horizontal bars (Top DICs, DIC range): label inside bar if wide enough, else just outside, with pill bg
+//   • Vertical simple bars (Region chart, ≤10 bars): label above with pill bg
+//   • Vertical stacked dense (monthly charts, >10 bars): thin labels so only non-overlapping ones show,
+//     draw with pill bg so they're always readable against any colour
+Chart.register({
+  id:'totalLabels',
+  afterDatasetsDraw(chart){
+    const {ctx,config,chartArea}=chart;
+    if(config.type!=='bar') return;
+    const isHoriz   = config.options?.indexAxis==='y';
+    const isStacked = !!(config.options?.scales?.x?.stacked||config.options?.scales?.y?.stacked);
+    const nDS = chart.data.datasets.length;
+    const nPts = chart.data.datasets[0]?.data?.length||0;
+    if(!nPts) return;
+
+    // ── collect per-bar totals and positions ──────────────────────────────
+    const items = [];   // {total, x, y, barW, barH}
+    for(let i=0;i<nPts;i++){
+      let total=0, topY=Infinity, rightX=-Infinity, barCx=0, barCy=0, barW=0, barH=0;
+      for(let di=0;di<nDS;di++){
+        const meta=chart.getDatasetMeta(di);
+        if(meta.hidden||!meta.data[i]) continue;
+        const v=chart.data.datasets[di].data[i]||0;
+        total+=v;
+        const el=meta.data[i];
+        if(isHoriz){
+          if(el.x>rightX){ rightX=el.x; barCy=el.y; barH=el.height||0; }
+        } else {
+          if(el.y<topY){ topY=el.y; }
+          barCx=el.x; barW=el.width||0;
+          barH=Math.abs((el.base||0)-el.y);
+        }
+      }
+      if(!total) continue;
+      if(isHoriz) items.push({total,x:rightX,y:barCy,barH});
+      else        items.push({total,x:barCx,y:topY,barW,barH});
+    }
+    if(!items.length) return;
+
+    // ── decide label density (avoid overlap) ─────────────────────────────
+    // Estimate how many px each label needs
+    ctx.save();
+    const FONT_SIZE = 9;
+    ctx.font = `bold ${FONT_SIZE}px system-ui,sans-serif`;
+    const sampleTxt = '₹9,999Cr';
+    const labelW = ctx.measureText(sampleTxt).width + 10; // +padding
+    const labelH = FONT_SIZE + 6;
+
+    // For vertical bars: available width per bar; for horiz: available height per bar
+    let stride = 1;
+    if(!isHoriz && items.length > 1){
+      const availPerBar = Math.abs((items[1]?.x||0)-(items[0]?.x||0));
+      stride = availPerBar > 0 ? Math.max(1, Math.ceil(labelW / availPerBar)) : 1;
+    } else if(isHoriz && items.length > 1){
+      const availPerBar = Math.abs((items[1]?.y||0)-(items[0]?.y||0));
+      stride = availPerBar > 0 ? Math.max(1, Math.ceil(labelH / availPerBar)) : 1;
+    }
+
+    // ── draw pill + label for each selected item ──────────────────────────
+    const PILL_PAD_X = 5, PILL_PAD_Y = 3, RADIUS = 4;
+    const TEXT_COLOR  = '#ffffff';
+    const PILL_BG     = 'rgba(30,34,46,0.82)';
+    const PILL_BORDER = 'rgba(255,255,255,0.18)';
+
+    function drawPill(cx, cy, txt, anchor){
+      // anchor: 'above' | 'right'
+      const tw = ctx.measureText(txt).width;
+      const pw = tw + PILL_PAD_X*2;
+      const ph = FONT_SIZE + PILL_PAD_Y*2;
+      let px, py;
+      if(anchor==='above'){
+        px = cx - pw/2;
+        py = cy - ph - 4;
+      } else { // right
+        px = cx + 6;
+        py = cy - ph/2;
+      }
+      // clamp to chartArea
+      if(chartArea){
+        px = Math.min(px, chartArea.right - pw - 2);
+        px = Math.max(px, chartArea.left + 2);
+        py = Math.max(py, chartArea.top + 2);
+      }
+      // pill background
+      ctx.beginPath();
+      ctx.moveTo(px+RADIUS, py);
+      ctx.lineTo(px+pw-RADIUS, py);
+      ctx.arcTo(px+pw, py, px+pw, py+ph, RADIUS);
+      ctx.lineTo(px+pw, py+ph-RADIUS);
+      ctx.arcTo(px+pw, py+ph, px+pw-RADIUS, py+ph, RADIUS);
+      ctx.lineTo(px+RADIUS, py+ph);
+      ctx.arcTo(px, py+ph, px, py+ph-RADIUS, RADIUS);
+      ctx.lineTo(px, py+RADIUS);
+      ctx.arcTo(px, py, px+RADIUS, py, RADIUS);
+      ctx.closePath();
+      ctx.fillStyle = PILL_BG;
+      ctx.fill();
+      ctx.strokeStyle = PILL_BORDER;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      // text
+      ctx.fillStyle = TEXT_COLOR;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(txt, px+PILL_PAD_X, py+ph/2);
+    }
+
+    items.forEach((item, idx)=>{
+      if(idx % stride !== 0) return;
+      const txt = '₹'+Math.round(item.total).toLocaleString()+'Cr';
+      if(isHoriz){
+        drawPill(item.x, item.y, txt, 'right');
+      } else {
+        drawPill(item.x, item.y, txt, 'above');
+      }
+    });
+
+    ctx.restore();
+  }
+});
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0d0f14; --surface:#13161e; --surface2:#1a1e28; --border:#252a36;
+  --text:#e8eaf0; --muted:#6b7385; --accent:#4f8ef7; --accent2:#f7c24f;
+  --c-ubc:#4f8ef7; --c-bc:#2ecf8e; --c-re:#f7614f; --c-hvdc:#f7c24f; --c-rc:#a78bf7; --c-tc:#f76fa8; --c-trx:#f76fa8; --c-bil:#38bdf8;
+  --nr:#4f8ef7; --wr:#2ecf8e; --sr:#f7614f; --er:#f7c24f; --ner:#a78bf7;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;padding:20px 24px;}
+/* Header */
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
+.hdr h1{font-size:20px;font-weight:800;letter-spacing:-.5px;}
+.hdr p{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:3px;}
+.badge{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:.5px;font-family:'DM Mono',monospace;}
+/* Controls */
+.ctrl-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px;align-items:flex-end;}
+.cg{display:flex;flex-direction:column;gap:5px;}
+.cg label{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;font-family:'DM Mono',monospace;}
+select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:7px 12px;font-size:12px;font-family:'Syne',sans-serif;min-width:150px;cursor:pointer;outline:none;transition:border-color .2s;}
+select:focus{border-color:var(--accent);}
+/* Slider range */
+/* ── Date Range Picker ── */
+.range-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;margin-bottom:16px;}
+.range-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.range-label{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;}
+.range-sel{font-size:12px;font-weight:700;color:var(--accent);font-family:'DM Mono',monospace;}
+/* Preset chips */
+.preset-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;}
+.preset-btn{padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .15s;letter-spacing:.3px;white-space:nowrap;}
+.preset-btn:hover{color:var(--text);border-color:var(--muted);}
+.preset-btn.active{background:var(--surface);color:var(--accent);border-color:var(--accent);}
+/* Month grid */
+.cal-grid{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;}
+.cal-year{flex-shrink:0;}
+.cal-year-label{font-size:10px;font-weight:700;color:var(--accent2);font-family:'DM Mono',monospace;text-align:center;margin-bottom:5px;letter-spacing:.5px;}
+.cal-months{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;}
+.cal-cell{width:38px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid transparent;user-select:none;transition:all .12s;color:var(--muted);white-space:nowrap;}
+.cal-cell:hover{background:var(--surface2);color:var(--text);}
+.cal-cell.in-range{background:rgba(79,142,247,.12);color:var(--text);border-color:rgba(79,142,247,.15);}
+.cal-cell.start-cell{background:var(--accent);color:#fff;border-color:var(--accent);border-radius:5px 2px 2px 5px;font-weight:700;}
+.cal-cell.end-cell{background:var(--accent);color:#fff;border-color:var(--accent);border-radius:2px 5px 5px 2px;font-weight:700;}
+.cal-cell.start-cell.end-cell{border-radius:5px;}
+.cal-cell.selecting{background:rgba(247,194,79,.12);color:var(--text);}
+.cal-cell.hover-end{background:rgba(79,142,247,.2);color:var(--text);}
+/* Range info bar */
+.range-info{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap;}
+.range-pill{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;font-family:'DM Mono',monospace;}
+.range-pill .rp-label{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.6px;}
+.range-pill .rp-val{color:var(--text);font-weight:700;}
+.range-pill.start .rp-val{color:var(--accent);}
+.range-pill.end .rp-val{color:var(--accent);}
+.range-arrow{color:var(--muted);font-size:14px;}
+.range-count{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:auto;}
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;position:relative;overflow:hidden;}
+.metric::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;border-radius:3px 0 0 3px;}
+.metric:nth-child(1)::before{background:var(--accent);}
+.metric:nth-child(2)::before{background:var(--c-bc);}
+.metric:nth-child(3)::before{background:var(--c-hvdc);}
+.metric:nth-child(4)::before{background:var(--c-tc);}
+.metric:nth-child(5)::before{background:var(--c-re);}
+.ml{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-family:'DM Mono',monospace;margin-bottom:5px;}
+.mv{font-size:20px;font-weight:700;color:var(--text);line-height:1;}
+.ms{font-size:10px;color:var(--muted);margin-top:3px;font-family:'DM Mono',monospace;}
+/* Chart grid */
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:15px 17px;}
+.ct{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:'DM Mono',monospace;margin-bottom:11px;}
+.leg{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px;}
+.li{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
+.ld{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+/* Tabs */
+.tabs{display:flex;gap:2px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+.tab{padding:8px 16px;font-size:11px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;letter-spacing:.5px;font-family:'DM Mono',monospace;text-transform:uppercase;margin-bottom:-1px;background:none;border-left:none;border-right:none;border-top:none;}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tc{display:none;}.tc.active{display:block;}
+/* DIC section */
+.dic-info{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.ds{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;min-width:110px;}
+.dsl{font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.6px;}
+.dsv{font-size:16px;font-weight:700;margin-top:3px;}
+.pills{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;}
+.pill{padding:3px 9px;border-radius:20px;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;border:1px solid;}
+@media(max-width:600px){.chart-row{grid-template-columns:1fr;}body{padding:12px;}}
+/* Upload mode buttons */
+.upload-mode-btn{display:flex;align-items:center;gap:7px;padding:9px 18px;border-radius:9px;font-size:12px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .2s;letter-spacing:.3px;}
+.upload-mode-btn.active{background:var(--surface);color:var(--accent2);border-color:var(--accent2);}
+.upload-mode-btn:hover:not(.active){color:var(--text);border-color:var(--muted);}
+/* Component input cards */
+.comp-input-card{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:13px 15px;}
+.comp-input-card label{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:6px;}
+.comp-input-card .color-dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+.comp-input-card input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;transition:border-color .2s;}
+.comp-input-card input:focus{border-color:var(--accent);}
+#loading-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: #0d0f14 !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  text-align: center !important;
+}
+#loading-overlay.hidden { display: none !important; }
+/* Drop zone hover */
+#drop-zone.drag-over{border-color:var(--accent);background:rgba(79,142,247,.07);}
+/* Preview table */
+#preview-table th{padding:6px 10px;text-align:left;background:var(--surface2);color:var(--accent);border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;}
+#preview-table td{padding:5px 10px;border-bottom:1px solid var(--border)22;color:var(--text);white-space:nowrap;}
+#preview-table tr:hover td{background:var(--surface2);}
+/* Upload log entries */
+.log-entry{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)44;}
+.log-entry:last-child{border-bottom:none;}
+.log-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;font-family:'DM Mono',monospace;letter-spacing:.5px;}
+.log-badge.ok{background:#1e2a1a;color:#2ecf8e;}
+.log-badge.warn{background:#2a2010;color:#f7c24f;}
+
+/* Manual entry table */
+#manual-table tbody tr{transition:background .1s;}
+#manual-table tbody tr:hover{background:var(--surface2);}
+#manual-table tbody tr.has-data{background:rgba(79,142,247,.04);}
+.mt-input{width:100%;background:transparent;border:none;border-bottom:1px solid transparent;color:var(--text);font-size:11px;font-family:'DM Mono',monospace;padding:4px 4px;text-align:right;outline:none;transition:all .15s;min-width:0;}
+.mt-input:focus{border-bottom-color:var(--accent);background:var(--surface2);border-radius:3px 3px 0 0;}
+.mt-input.has-val{color:var(--text);}
+.mt-name-input{text-align:left;}
+.mt-region-sel{width:100%;background:transparent;border:none;border-bottom:1px solid transparent;color:var(--muted);font-size:11px;font-family:'DM Mono',monospace;padding:4px 2px;outline:none;cursor:pointer;text-align:center;-webkit-appearance:none;}
+.mt-region-sel:focus{border-bottom-color:var(--accent);}
+.mt-del-btn{background:none;border:none;color:var(--border);cursor:pointer;font-size:13px;padding:3px 6px;border-radius:4px;transition:all .15s;line-height:1;}
+.mt-del-btn:hover{color:#f7614f;background:#f7614f15;}
+td.mt-cell{padding:3px 3px;border-bottom:1px solid var(--border)22;vertical-align:middle;}
+td.mt-cell-name{padding:3px 8px;border-bottom:1px solid var(--border)22;vertical-align:middle;}
+.dl-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+.dl-label{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;margin-right:4px;}
+.dl-btn{display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid;transition:all .18s;letter-spacing:.3px;}
+.dl-btn:hover{transform:translateY(-1px);filter:brightness(1.15);}
+.dl-btn.csv{background:#1e2a1a;color:#2ecf8e;border-color:#2ecf8e55;}
+.dl-btn.xlsx{background:#1a2030;color:#4f8ef7;border-color:#4f8ef755;}
+.dl-btn svg{width:13px;height:13px;flex-shrink:0;}
+
+/* ── Feature styles ── */
+
+/* Dark/light mode */
+body.light{
+  --bg:#f4f6fb; --surface:#ffffff; --surface2:#eef1f7; --border:#dde2ed;
+  --text:#1a1e2a; --muted:#7a8299; --accent:#2563eb; --accent2:#d97706;
+}
+body.light .tab{color:#7a8299;}
+body.light .tab.active{color:#2563eb;}
+body.light select{background:#eef1f7;color:#1a1e2a;}
+body.light .metric{background:#fff;}
+body.light .card{background:#fff;}
+body.light #preview-table th{background:#eef1f7;}
+body.light .comp-input-card{background:#eef1f7;}
+body.light .comp-input-card input{background:#fff;color:#1a1e2a;}
+body.light .upload-mode-btn{background:#eef1f7;color:#7a8299;}
+body.light .upload-mode-btn.active{background:#fff;color:#d97706;}
+body.light #drop-zone{background:#eef1f7;}
+
+/* Theme toggle */
+.theme-btn{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .2s;}
+.theme-btn:hover{color:var(--text);}
+
+/* Search bar */
+.search-wrap{position:relative;flex:1;min-width:180px;max-width:300px;}
+.search-wrap input{width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 12px 7px 32px;font-size:12px;font-family:'Syne',sans-serif;outline:none;transition:border-color .2s;}
+.search-wrap input:focus{border-color:var(--accent);}
+.search-wrap .si{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
+.search-drop{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;z-index:200;max-height:220px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.3);}
+.search-drop.open{display:block;}
+.search-item{padding:8px 12px;font-size:12px;cursor:pointer;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:8px;transition:background .12s;}
+.search-item:hover,.search-item.focused{background:var(--surface2);}
+.search-item .sr-badge{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;}
+
+/* Completeness heatmap */
+.heatmap-grid{display:grid;gap:2px;margin-top:10px;overflow-x:auto;}
+.hm-cell{border-radius:3px;transition:opacity .2s;cursor:default;position:relative;}
+.hm-cell:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;font-family:'DM Mono',monospace;white-space:nowrap;z-index:100;pointer-events:none;color:var(--text);}
+.hm-legend{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);}
+.hm-swatch{width:14px;height:14px;border-radius:3px;}
+
+/* Conflict dialog modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;max-width:520px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,.5);}
+.modal-title{font-size:14px;font-weight:800;color:var(--text);margin-bottom:6px;}
+.modal-sub{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:18px;line-height:1.6;}
+.modal-conflict-row{background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:11px;font-family:'DM Mono',monospace;}
+.modal-conflict-row .cr-label{color:var(--accent);font-weight:700;margin-bottom:4px;}
+.modal-conflict-row .cr-vals{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);}
+.modal-conflict-row .cr-vals span b{color:var(--text);}
+.modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;}
+.modal-btn{padding:8px 16px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid;transition:all .18s;}
+.modal-btn.primary{background:#1e2a1a;color:#2ecf8e;border-color:#2ecf8e55;}
+.modal-btn.danger{background:#2a1a1a;color:#f7614f;border-color:#f7614f55;}
+.modal-btn.warn{background:#2a2010;color:#f7c24f;border-color:#f7c24f55;}
+.modal-btn.ghost{background:transparent;color:var(--muted);border-color:var(--border);}
+.modal-btn:hover{filter:brightness(1.15);}
+.modal-progress{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;}
+
+/* Audit trail */
+.audit-row{display:grid;grid-template-columns:90px 70px 1fr auto;gap:10px;padding:7px 10px;border-radius:6px;font-size:11px;font-family:'DM Mono',monospace;align-items:center;}
+.audit-row:hover{background:var(--surface2);}
+.audit-row .at{color:var(--muted);}
+.audit-row .ac{font-weight:700;}
+.audit-row .ac.add{color:#2ecf8e;}
+.audit-row .ac.edit{color:#4f8ef7;}
+.audit-row .ac.overwrite{color:#f7c24f;}
+.audit-filter-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.af-btn{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .15s;}
+.af-btn.active{background:var(--surface);color:var(--text);border-color:var(--accent);}
+
+/* PDF print area */
+@media print{
+  body{background:#fff!important;color:#000!important;padding:0;}
+  .tabs,.ctrl-row,.range-wrap,.dl-bar,.hdr .badge,#tab-upload,#tab-trends,#tab-dic{display:none!important;}
+  #tab-overview{display:block!important;}
+  .card,.metric{border:1px solid #ddd!important;background:#fff!important;}
+  .mv,.ct,.ml,.ms,.li{color:#000!important;}
+  canvas{max-width:100%;}
+}
+</style>
+</head>
+<body>
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div id="overlay-content">
+    <div style="font-size:28px;margin-bottom:12px;">📊</div>
+    <div style="font-family:'DM Mono',monospace;color:#4f8ef7;font-size:14px;font-weight:700;letter-spacing:1px;">LOADING DATA</div>
+    <div style="font-family:'DM Mono',monospace;color:#6b7385;font-size:11px;margin-top:6px;">Fetching from database…</div>
+  </div>
+</div>
+
+<div class="hdr">
+  <div>
+    <h1>ISTS Transmission Charges</h1>
+    <p id="hdr-sub">Designated ISTS Customers (DICs) · Jan 2021 – Jun 2026 · 66 months</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <!-- Search -->
+    <div class="search-wrap" id="search-wrap">
+      <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:13px;height:13px;"><circle cx="6.5" cy="6.5" r="4"/><path d="M11 11l2.5 2.5"/></svg>
+      <input type="text" id="search-input" placeholder="Search DIC…" autocomplete="off" oninput="onSearch(this.value)" onkeydown="searchKeyNav(event)">
+      <div class="search-drop" id="search-drop"></div>
+    </div>
+    <!-- PDF export -->
+    <button class="theme-btn" onclick="exportPDF()" title="Export PDF snapshot">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:13px;height:13px;"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M5 9h6M5 12h4"/></svg>
+      PDF
+    </button>
+    <!-- Theme toggle -->
+    <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">
+      <svg id="theme-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:13px;height:13px;"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M11.4 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4"/></svg>
+      Light
+    </button>
+    <div class="badge">CERC / Power Grid</div>
+  </div>
+</div>
+
+<!-- Conflict resolution modal — bulk review -->
+<div id="conflict-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:680px;width:95%;">
+    <div class="modal-title">⚠ Duplicate Data Detected</div>
+    <div class="modal-sub" id="conflict-sub" style="margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="modal-btn warn" style="font-size:10px;padding:5px 12px;" onclick="conflictSelectAll(true)">☑ Select All</button>
+      <button class="modal-btn ghost" style="font-size:10px;padding:5px 12px;" onclick="conflictSelectAll(false)">☐ Deselect All</button>
+    </div>
+    <div id="conflict-detail" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:4px;"></div>
+    <div class="modal-actions" style="margin-top:14px;flex-wrap:wrap;gap:8px;">
+      <button class="modal-btn primary" onclick="resolveConflictBulk('overwrite-checked')">✓ Overwrite Selected</button>
+      <button class="modal-btn ghost" onclick="resolveConflictBulk('skip-all')">Skip All</button>
+      <button class="modal-btn danger" onclick="resolveConflictBulk('abort')">Abort Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF snapshot modal -->
+<div id="pdf-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:600px;">
+    <div class="modal-title">📄 Export PDF Snapshot</div>
+    <div class="modal-sub">Generates a formatted report with key metrics, top charts, and a data table for the currently selected date range and filters.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+      <label style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="pdf-metrics" checked style="accent-color:var(--accent);"> Key metrics panel
+      </label>
+      <label style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="pdf-charts" checked style="accent-color:var(--accent);"> Region & component charts
+      </label>
+      <label style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="pdf-top" checked style="accent-color:var(--accent);"> Top DICs chart
+      </label>
+      <label style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="pdf-table" checked style="accent-color:var(--accent);"> Data table (all DICs)
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn primary" onclick="doPDFExport()">Generate & Download PDF</button>
+      <button class="modal-btn ghost" onclick="document.getElementById('pdf-modal').style.display='none'">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Range Slider -->
+<div class="range-wrap">
+  <div class="range-header">
+    <span class="range-label">Date Range</span>
+    <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">Click start month, then end month</span>
+  </div>
+  <!-- Preset quick-select -->
+  <div class="preset-row" id="preset-row">
+    <button class="preset-btn" onclick="applyPreset(0,11)">2021</button>
+    <button class="preset-btn" onclick="applyPreset(12,23)">2022</button>
+    <button class="preset-btn" onclick="applyPreset(24,35)">2023</button>
+    <button class="preset-btn" onclick="applyPreset(36,47)">2024</button>
+    <button class="preset-btn" onclick="applyPreset(48,59)">2025</button>
+    <button class="preset-btn" onclick="applyPreset(60,65)">2026</button>
+    <button class="preset-btn" onclick="applyPreset(24,47)">2023–24</button>
+    <button class="preset-btn" onclick="applyPreset(36,59)">2024–25</button>
+    <button class="preset-btn" onclick="applyPreset(48,65)">2025–26</button>
+    <button class="preset-btn" onclick="applyPreset(0,65)">All time</button>
+    <button class="preset-btn" onclick="applyPresetLast(12)">Last 12 mo</button>
+    <button class="preset-btn" onclick="applyPresetLast(6)">Last 6 mo</button>
+    <button class="preset-btn" onclick="applyPresetLast(3)">Last 3 mo</button>
+  </div>
+  <!-- Month grid calendar -->
+  <div class="cal-grid" id="cal-grid"></div>
+  <!-- Info bar -->
+  <div class="range-info">
+    <div class="range-pill start"><span class="rp-label">From</span><span class="rp-val" id="rp-start">Jan '23</span></div>
+    <span class="range-arrow">→</span>
+    <div class="range-pill end"><span class="rp-label">To</span><span class="rp-val" id="rp-end">Jun '26</span></div>
+    <span class="range-count" id="rp-count">42 months selected</span>
+    <button class="preset-btn" id="reset-btn" onclick="applyPreset(0,65)" style="margin-left:auto;">Reset</button>
+  </div>
+</div>
+
+<!-- Global Controls -->
+<div class="ctrl-row">
+  <div class="cg">
+    <label>Region</label>
+    <select id="sel-region">
+      <option value="all">All regions</option>
+      <option value="NR">Northern (NR)</option>
+      <option value="WR">Western (WR)</option>
+      <option value="SR">Southern (SR)</option>
+      <option value="ER">Eastern (ER)</option>
+      <option value="NER">North-Eastern (NER)</option>
+    </select>
+  </div>
+  <div class="cg">
+    <label>Component</label>
+    <select id="sel-component">
+      <option value="total">Total charges</option>
+      <option value="ac_ubc">AC-UBC</option>
+      <option value="ac_bc">AC-BC</option>
+      <option value="nc_re">NC-RE</option>
+      <option value="nc_hvdc">NC-HVDC</option>
+      <option value="rc">RC</option>
+      <option value="trx">Transformers</option>
+    </select>
+  </div>
+</div>
+
+<!-- Tabs -->
+
+<!-- ── Component toggle bar ─────────────────────────────────────────────── -->
+<div id="comp-toggle-bar" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+  <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;margin-right:4px;">Components</span>
+  <div id="comp-toggles" style="display:flex;flex-wrap:wrap;gap:6px;flex:1;"></div>
+  <div style="display:flex;gap:6px;margin-left:auto;">
+    <button onclick="setAllComps(true)" style="font-size:10px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;">All</button>
+    <button onclick="setAllComps(false)" style="font-size:10px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;">None</button>
+    <button onclick="showAddColPanel()" style="font-size:10px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:5px;border:1px solid var(--accent);background:var(--accent)22;color:var(--accent);cursor:pointer;">+ Add Component</button>
+  </div>
+</div>
+
+<!-- ── Add Component modal ───────────────────────────────────────────────── -->
+<div id="add-col-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:420px;max-width:95vw;">
+    <div style="font-size:13px;font-weight:800;margin-bottom:4px;">Add New Charge Component</div>
+    <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:18px;">Adds a new column to the database. You can enter values per DIC per month in the Enter Values modal.</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>
+        <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Column ID (lowercase, underscores only)</label>
+        <input id="new-col-id" type="text" placeholder="e.g. rldc_charges" maxlength="30"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;margin-top:5px;outline:none;"
+          oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')">
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Display Label</label>
+        <input id="new-col-label" type="text" placeholder="e.g. RLDC Charges" maxlength="40"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;margin-top:5px;outline:none;">
+      </div>
+      <div id="add-col-status" style="font-size:11px;font-family:'DM Mono',monospace;min-height:16px;"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button onclick="doAddColumn()" style="flex:1;padding:9px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Add Column</button>
+      <button onclick="document.getElementById('add-col-modal').style.display='none'"
+        style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Enter Values modal ────────────────────────────────────────────────── -->
+<div id="set-val-modal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:520px;max-width:95vw;">
+    <div style="font-size:13px;font-weight:800;margin-bottom:4px;" id="set-val-title">Enter Values</div>
+    <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:16px;">Enter values for each DIC and month. Leave blank to keep as 0.</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <select id="sv-col" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:'DM Mono',monospace;"></select>
+      <select id="sv-dic" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:'DM Mono',monospace;flex:1;min-width:180px;"></select>
+    </div>
+    <div id="set-val-rows" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;"></div>
+    <div id="set-val-status" style="font-size:11px;font-family:'DM Mono',monospace;margin-top:10px;min-height:16px;color:var(--accent2);"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button onclick="doSetValues()" style="flex:1;padding:9px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Save All Values</button>
+      <button onclick="document.getElementById('set-val-modal').style.display='none'"
+        style="padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('overview')">Overview</button>
+  <button class="tab" onclick="switchTab('dic')">DIC Breakdown</button>
+  <button class="tab" onclick="switchTab('trends')">Monthly Trends</button>
+  <button class="tab" onclick="switchTab('completeness')">Data Coverage</button>
+  <button class="tab" onclick="switchTab('audit')">Audit Trail</button>
+  <button class="tab" onclick="switchTab('upload')" style="color:#f7c24f;border-bottom-color:transparent;" id="tab-upload-btn">+ Add Data</button>
+</div>
+
+<!-- Overview -->
+<div id="tab-overview" class="tc active">
+  <div class="dl-bar">
+    <span class="dl-label">Download overview data</span>
+    <button class="dl-btn csv" onclick="downloadOverviewCSV()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
+    </button>
+    <button class="dl-btn xlsx" onclick="downloadOverviewXLSX()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
+    </button>
+    <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:4px;" id="ov-dl-info"></span>
+  </div>
+  <div class="metrics" id="metrics"></div>
+  <div class="chart-row">
+    <div class="card">
+      <div class="ct">Charges by Region</div>
+      <div class="leg" id="leg-region"></div>
+      <div style="position:relative;height:210px;"><canvas id="chartRegion"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ct">Component Breakdown</div>
+      <div class="leg" id="leg-comp"></div>
+      <div style="position:relative;height:210px;"><canvas id="chartComp"></canvas></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct" id="top-title">Top DICs by Charge</div>
+    <div style="position:relative;" id="top-wrap"><canvas id="chartTop"></canvas></div>
+  </div>
+</div>
+
+<!-- DIC Breakdown -->
+<div id="tab-dic" class="tc">
+  <div class="dl-bar">
+    <span class="dl-label">Download DIC data</span>
+    <button class="dl-btn csv" onclick="downloadDicCSV()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
+    </button>
+    <button class="dl-btn xlsx" onclick="downloadDicXLSX()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
+    </button>
+    <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:4px;" id="dic-dl-info"></span>
+  </div>
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+      <div class="ct" style="margin:0;">Select a DIC</div>
+      <div class="cg" style="flex-direction:row;align-items:center;gap:8px;">
+        <label style="white-space:nowrap;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:1px;">DIC</label>
+        <select id="sel-dic" style="min-width:210px;"></select>
+      </div>
+    </div>
+    <div class="dic-info" id="dic-stats"></div>
+    <div class="pills" id="dic-pills"></div>
+    <div class="chart-row" style="margin-bottom:0;">
+      <div>
+        <div class="ct">Component breakdown (pie)</div>
+        <div style="position:relative;height:240px;"><canvas id="chartDicPie"></canvas></div>
+      </div>
+      <div>
+        <div class="ct">Range total — stacked bar</div>
+        <div style="position:relative;height:240px;"><canvas id="chartDicComp"></canvas></div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct" id="dic-month-title">Monthly Component Breakdown</div>
+    <div style="position:relative;height:280px;"><canvas id="chartDicMonths"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="ct" id="dic-trend-title">Monthly Component Trends</div>
+    <div class="leg" id="leg-dic-trend"></div>
+    <div style="position:relative;height:300px;"><canvas id="chartDicTrend"></canvas></div>
+  </div>
+</div>
+
+<!-- Monthly Trends -->
+<div id="tab-trends" class="tc">
+  <div class="dl-bar">
+    <span class="dl-label">Download trends data</span>
+    <button class="dl-btn csv" onclick="downloadTrendsCSV()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
+    </button>
+    <button class="dl-btn xlsx" onclick="downloadTrendsXLSX()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
+    </button>
+    <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:4px;" id="tr-dl-info"></span>
+  </div>
+  <div class="card" style="margin-bottom:12px;">
+    <div class="ct">Total Charges by Region — Monthly</div>
+    <div class="leg" id="leg-trend"></div>
+    <div style="position:relative;height:270px;"><canvas id="chartTrend"></canvas></div>
+  </div>
+  <div class="chart-row">
+    <div class="card">
+      <div class="ct">Region Share — Stacked</div>
+      <div style="position:relative;height:250px;"><canvas id="chartRegionStack"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ct">Component Split — Monthly</div>
+      <div style="position:relative;height:250px;"><canvas id="chartCompMonth"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload / Add Data -->
+<div id="tab-upload" class="tc">
+
+  <!-- Mode toggle -->
+  <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+    <button class="upload-mode-btn active" id="mode-excel-btn" onclick="setUploadMode('excel')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6l2 2-2 2M9 10h2"/></svg>
+      Upload Excel / CSV
+    </button>
+    <button class="upload-mode-btn" id="mode-pdf-btn" onclick="setUploadMode('pdf')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M6 8h4M6 10.5h3"/></svg>
+      Upload PDF Bill
+    </button>
+    <button class="upload-mode-btn" id="mode-manual-btn" onclick="setUploadMode('manual')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;"><path d="M3 8h10M8 3v10"/></svg>
+      Manual Entry
+    </button>
+    <button class="upload-mode-btn" id="mode-remove-btn" onclick="setUploadMode('remove')" style="color:#f7614f;border-color:#f7614f44;">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      Remove Month Data
+    </button>
+  </div>
+
+  <!-- ── EXCEL UPLOAD PANEL ── -->
+  <div id="panel-excel">
+    <div class="card" style="margin-bottom:14px;">
+      <div class="ct">Upload Excel or CSV File</div>
+
+      <!-- Format badges -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+        <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Accepted formats:</span>
+        <span style="background:#1a2a1a;color:#2ecf8e;border:1px solid #2ecf8e44;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">Power Grid Native</span>
+        <span style="background:#1a1e2a;color:#4f8ef7;border:1px solid #4f8ef744;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">Dashboard Template</span>
+        <span style="background:#2a1a1a;color:#f7c24f;border:1px solid #f7c24f44;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">CSV</span>
+      </div>
+
+      <!-- Two-format explainer -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+        <div style="background:var(--surface2);border:1px solid #2ecf8e33;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:11px;font-weight:700;color:#2ecf8e;font-family:'DM Mono',monospace;margin-bottom:6px;">Power Grid Native Format ✓</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;">The official monthly billing Excel sent by Power Grid/CTU — upload it directly. Month is auto-detected from the title row. Columns: S.No · Zone · Region · GNAsh · AC-UBC · AC-BC · NC-RE · NC-HVDC · RC · TC · Bilateral</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid #4f8ef733;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:11px;font-weight:700;color:#4f8ef7;font-family:'DM Mono',monospace;margin-bottom:6px;">Dashboard Template Format</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;">Custom format with explicit Month column — lets you add multiple months in one file. Download the template below to get started.</div>
+        </div>
+      </div>
+
+      <!-- Template download -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+        <button class="dl-btn xlsx" onclick="downloadTemplate()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Download Template
+        </button>
+        <span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">← multi-month custom format</span>
+      </div>
+
+      <!-- Expected columns table (template format) -->
+      <details style="margin-bottom:18px;">
+        <summary style="font-size:11px;font-weight:700;color:var(--muted);font-family:'DM Mono',monospace;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;padding:6px 0;">Template column reference ▾</summary>
+        <div style="overflow-x:auto;margin-top:10px;">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace;">
+            <thead><tr style="background:var(--surface2);">
+              <th style="padding:7px 10px;text-align:left;color:var(--accent);border-bottom:1px solid var(--border);">Column</th>
+              <th style="padding:7px 10px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Example</th>
+              <th style="padding:7px 10px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Notes</th>
+            </tr></thead>
+            <tbody id="col-table-body"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- Drop zone -->
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+        style="border:2px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface2);">
+        <div style="font-size:28px;margin-bottom:8px;">📂</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">Drop file here or click to browse</div>
+        <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">.xlsx · .xls · .csv accepted</div>
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileUpload(this.files[0])">
+      </div>
+
+      <!-- Parse result -->
+      <div id="upload-result" style="display:none;margin-top:14px;"></div>
+
+      <!-- Preview table -->
+      <div id="upload-preview" style="display:none;margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <span class="ct" style="margin:0;">Preview <span id="preview-count" style="color:var(--accent)"></span></span>
+          <div style="display:flex;gap:8px;">
+            <button class="dl-btn csv" style="font-size:11px;padding:5px 12px;" onclick="confirmUpload()">✓ Confirm &amp; Add to Dashboard</button>
+            <button class="dl-btn xlsx" style="font-size:11px;padding:5px 12px;background:#2a1a1a;color:#f7614f;border-color:#f7614f55;" onclick="cancelUpload()">✕ Cancel</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;max-height:300px;overflow-y:auto;">
+          <table id="preview-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace;"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload log -->
+    <div class="card">
+      <div class="ct">Upload History</div>
+      <div id="upload-log" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);min-height:40px;">
+        <em>No uploads yet this session.</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REMOVE MONTH PANEL ── -->
+  <div id="panel-remove" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div class="ct" style="color:#f7614f;">Remove Month Data</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.7;">
+        Select a month to zero-out all DIC data for that month, or remove data for a specific DIC only.
+        This sets all component values to zero — it does not delete the month from the timeline.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px;align-items:flex-end;">
+        <div class="cg">
+          <label>Month to remove</label>
+          <select id="rm-month-sel" style="min-width:140px;" onchange="updateRemovePreview()">
+          </select>
+        </div>
+        <div class="cg">
+          <label>Scope</label>
+          <select id="rm-scope" style="min-width:160px;" onchange="updateRemovePreview()">
+            <option value="all">All DICs in this month</option>
+            <option value="region">Specific region only</option>
+            <option value="dic">Specific DIC only</option>
+          </select>
+        </div>
+        <div class="cg" id="rm-region-wrap" style="display:none;">
+          <label>Region</label>
+          <select id="rm-region-sel" style="min-width:120px;" onchange="updateRemovePreview()">
+            <option value="NR">NR</option><option value="WR">WR</option>
+            <option value="SR">SR</option><option value="ER">ER</option><option value="NER">NER</option>
+          </select>
+        </div>
+        <div class="cg" id="rm-dic-wrap" style="display:none;">
+          <label>DIC</label>
+          <select id="rm-dic-sel" style="min-width:200px;" onchange="updateRemovePreview()"></select>
+        </div>
+      </div>
+
+      <!-- Preview of what will be removed -->
+      <div id="rm-preview" style="background:var(--surface2);border:1px solid #f7614f33;border-radius:8px;padding:14px;margin-bottom:16px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);">
+        Select a month above to preview what will be removed.
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button onclick="executeRemove()"
+          style="display:flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid #f7614f55;background:#2a1a1a;color:#f7614f;transition:all .18s;"
+          onmouseover="this.style.filter='brightness(1.2)'" onmouseout="this.style.filter=''">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:13px;height:13px;"><path d="M3 3l10 10M13 3L3 13"/></svg>
+          Zero-out selected data
+        </button>
+        <span id="rm-status" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);"></span>
+      </div>
+    </div>
+
+    <!-- Removal history -->
+    <div class="card">
+      <div class="ct">Removal History</div>
+      <div id="remove-log" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);min-height:40px;">
+        <em>No removals yet this session.</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PDF BILL UPLOAD PANEL ── -->
+<div id="panel-pdf" style="display:none;">
+  <div id="pdf-drop-zone" style="border:2px dashed var(--border);border-radius:12px;padding:36px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:14px;"
+    ondragover="event.preventDefault();this.style.borderColor='var(--accent2)'"
+    ondragleave="this.style.borderColor='var(--border)'"
+    ondrop="event.preventDefault();this.style.borderColor='var(--border)';handlePdfUpload(event.dataTransfer.files[0])">
+    <input type="file" id="pdf-file-input" accept=".pdf" style="display:none" onchange="handlePdfUpload(this.files[0])">
+    <div style="font-size:28px;margin-bottom:8px;">📄</div>
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">Drop POSOCO PDF Bill here</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Drag & drop the monthly combined PDF, or click to browse</div>
+    <button class="modal-btn primary" onclick="document.getElementById('pdf-file-input').click()">Browse PDF</button>
+  </div>
+  <div id="pdf-status" style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;min-height:18px;margin-bottom:8px;"></div>
+  <div id="pdf-preview" style="display:none;">
+    <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;" id="pdf-preview-summary"></div>
+    <div style="max-height:280px;overflow-y:auto;margin-bottom:12px;" id="pdf-preview-table"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="modal-btn primary" onclick="confirmPdfUpload()">✓ Confirm &amp; Merge</button>
+      <button class="modal-btn ghost" onclick="cancelPdfUpload()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MANUAL ENTRY PANEL ── -->
+  <div id="panel-manual" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div class="ct">Manual Table Entry — One Month, All DICs</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.7;">
+        Enter data exactly like the Power Grid billing sheet — select the month at the top, then fill in values row by row.
+        Only rows with at least one non-zero value are saved. Leave a row blank to skip it.
+      </p>
+
+      <!-- Month + year selector at top -->
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:18px;padding:14px 16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+        <div class="cg">
+          <label>Billing Month</label>
+          <select id="man-month" style="min-width:130px;">
+            <option value="0">January</option><option value="1">February</option>
+            <option value="2">March</option><option value="3">April</option>
+            <option value="4">May</option><option value="5" selected>June</option>
+            <option value="6">July</option><option value="7">August</option>
+            <option value="8">September</option><option value="9">October</option>
+            <option value="10">November</option><option value="11">December</option>
+          </select>
+        </div>
+        <div class="cg">
+          <label>Year</label>
+          <select id="man-year" style="min-width:100px;">
+            <option>2020</option><option>2021</option><option>2022</option>
+            <option>2023</option><option>2024</option><option>2025</option>
+            <option selected>2026</option><option>2027</option><option>2028</option>
+          </select>
+        </div>
+        <div class="cg" style="margin-left:auto;">
+          <label>&nbsp;</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="dl-btn csv" style="padding:6px 13px;font-size:11px;" onclick="prefillTableFromLastMonth()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px;"><path d="M3 8h10M8 3l5 5-5 5"/></svg>
+              Copy from last available month
+            </button>
+            <button class="dl-btn xlsx" style="padding:6px 13px;font-size:11px;background:#1a1a2a;color:#a78bf7;border-color:#a78bf755;" onclick="clearManualTable()">
+              ↺ Clear all
+            </button>
+          </div>
+        </div>
+        <div style="width:100%;font-size:11px;color:var(--accent);font-family:'DM Mono',monospace;" id="man-month-status"></div>
+      </div>
+
+      <!-- The big table -->
+      <div style="overflow-x:auto;margin-bottom:16px;">
+        <table id="manual-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace;min-width:900px;">
+          <thead>
+            <tr style="background:var(--surface2);">
+              <th style="padding:8px 6px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;width:28px;">#</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--accent);border-bottom:1px solid var(--border);min-width:160px;">DIC / Zone</th>
+              <th style="padding:8px 6px;text-align:center;color:var(--muted);border-bottom:1px solid var(--border);width:52px;">Region</th>
+              <th style="padding:8px 6px;text-align:right;color:var(--muted);border-bottom:1px solid var(--border);width:72px;">GNAsh (MW)</th>
+              <th style="padding:8px 8px;text-align:right;color:#4f8ef7;border-bottom:1px solid var(--border);min-width:110px;">AC-UBC (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#2ecf8e;border-bottom:1px solid var(--border);min-width:110px;">AC-BC (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#f7614f;border-bottom:1px solid var(--border);min-width:110px;">NC-RE (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#f7c24f;border-bottom:1px solid var(--border);min-width:110px;">NC-HVDC (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#a78bf7;border-bottom:1px solid var(--border);min-width:110px;">RC (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#f76fa8;border-bottom:1px solid var(--border);min-width:110px;">TC (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:#38bdf8;border-bottom:1px solid var(--border);min-width:110px;">Bilateral (₹)</th>
+              <th style="padding:8px 8px;text-align:right;color:var(--muted);border-bottom:1px solid var(--border);min-width:130px;">Total (₹ full)</th>
+            </tr>
+          </thead>
+          <tbody id="manual-table-body">
+            <!-- rows injected by JS -->
+          </tbody>
+          <!-- totals footer -->
+          <tfoot>
+            <tr id="manual-table-totals" style="background:var(--surface2);font-weight:700;">
+              <td colspan="4" style="padding:8px 10px;color:var(--muted);border-top:2px solid var(--border);">TOTAL</td>
+              <td id="mt-ubc" style="padding:8px 8px;text-align:right;color:#4f8ef7;border-top:2px solid var(--border);">—</td>
+              <td id="mt-bc"  style="padding:8px 8px;text-align:right;color:#2ecf8e;border-top:2px solid var(--border);">—</td>
+              <td id="mt-re"  style="padding:8px 8px;text-align:right;color:#f7614f;border-top:2px solid var(--border);">—</td>
+              <td id="mt-hvdc" style="padding:8px 8px;text-align:right;color:#f7c24f;border-top:2px solid var(--border);">—</td>
+              <td id="mt-rc"  style="padding:8px 8px;text-align:right;color:#a78bf7;border-top:2px solid var(--border);">—</td>
+              <td id="mt-tc"  style="padding:8px 8px;text-align:right;color:#f76fa8;border-top:2px solid var(--border);">—</td>
+              <td id="mt-bil" style="padding:8px 8px;text-align:right;color:#38bdf8;border-top:2px solid var(--border);">—</td>
+              <td id="mt-tot" style="padding:8px 8px;text-align:right;color:var(--text);border-top:2px solid var(--border);">—</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- Add new DIC row -->
+      <div style="margin-bottom:16px;">
+        <button onclick="addManualRow()" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:12px;height:12px;"><path d="M3 8h10M8 3v10"/></svg>
+          Add row for another DIC
+        </button>
+      </div>
+
+      <!-- Submit -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="dl-btn csv" style="padding:9px 20px;font-size:12px;" onclick="submitManualTable()">
+          ✓ Save all rows to dashboard
+        </button>
+        <span id="manual-status" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);"></span>
+      </div>
+    </div>
+
+    <!-- Manual entry log -->
+    <div class="card">
+      <div class="ct">Entries Added This Session</div>
+      <div id="manual-log" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);min-height:40px;">
+        <em>No entries yet.</em>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Data Completeness -->
+<div id="tab-completeness" class="tc">
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      <div class="ct" style="margin:0;">Data Coverage Heatmap</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">Filter region:</span>
+        <select id="hm-region" onchange="renderHeatmap()" style="min-width:120px;font-size:11px;padding:5px 10px;">
+          <option value="all">All</option>
+          <option value="NR">NR</option><option value="WR">WR</option>
+          <option value="SR">SR</option><option value="ER">ER</option><option value="NER">NER</option>
+        </select>
+        <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">Sort:</span>
+        <select id="hm-sort" onchange="renderHeatmap()" style="min-width:120px;font-size:11px;padding:5px 10px;">
+          <option value="name">Name A–Z</option>
+          <option value="completeness">Completeness ↓</option>
+          <option value="region">Region</option>
+        </select>
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:14px;font-family:'DM Mono',monospace;line-height:1.6;">
+      Each cell = one DIC × one month. <span style="color:#2ecf8e">■</span> Has data &nbsp;
+      <span style="color:#f7614f">■</span> Missing / zero &nbsp;
+      <span style="color:#f7c24f">■</span> Partial (some components zero). Hover for details.
+    </p>
+    <div id="heatmap-container" style="overflow-x:auto;"></div>
+    <div class="hm-legend">
+      <div class="hm-swatch" style="background:#2ecf8e;"></div>Complete
+      <div class="hm-swatch" style="background:#f7c24f;margin-left:8px;"></div>Partial
+      <div class="hm-swatch" style="background:#f7614f44;margin-left:8px;border:1px solid #f7614f33;"></div>Missing
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct">Coverage Summary</div>
+    <div id="completeness-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px;"></div>
+  </div>
+</div>
+
+<!-- Audit Trail -->
+<div id="tab-audit" class="tc">
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+      <div class="ct" style="margin:0;">Audit Trail <span id="audit-count" style="color:var(--accent);font-size:10px;"></span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="dl-btn csv" style="font-size:10px;padding:5px 10px;" onclick="downloadAuditCSV()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Export CSV
+        </button>
+        <button class="modal-btn danger" style="font-size:10px;padding:5px 10px;" onclick="clearAuditLog()">Clear Log</button>
+      </div>
+    </div>
+    <div class="audit-filter-row" id="audit-filters">
+      <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;align-self:center;">Filter:</span>
+      <button class="af-btn active" data-f="all" onclick="setAuditFilter('all',this)">All</button>
+      <button class="af-btn" data-f="add" onclick="setAuditFilter('add',this)">New DIC</button>
+      <button class="af-btn" data-f="edit" onclick="setAuditFilter('edit',this)">Edit</button>
+      <button class="af-btn" data-f="overwrite" onclick="setAuditFilter('overwrite',this)">Overwrite</button>
+      <button class="af-btn" data-f="upload" onclick="setAuditFilter('upload',this)">Upload</button>
+      <button class="af-btn" data-f="manual" onclick="setAuditFilter('manual',this)">Manual</button>
+    </div>
+    <!-- Column headers -->
+    <div class="audit-row" style="border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:4px;">
+      <span style="font-size:10px;font-weight:700;color:var(--muted);font-family:'DM Mono',monospace;">TIMESTAMP</span>
+      <span style="font-size:10px;font-weight:700;color:var(--muted);font-family:'DM Mono',monospace;">ACTION</span>
+      <span style="font-size:10px;font-weight:700;color:var(--muted);font-family:'DM Mono',monospace;">DETAIL</span>
+      <span style="font-size:10px;font-weight:700;color:var(--muted);font-family:'DM Mono',monospace;">METHOD</span>
+    </div>
+    <div id="audit-list" style="max-height:500px;overflow-y:auto;">
+      <div style="padding:20px;text-align:center;font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;">No entries yet. Add data via the <strong>+ Add Data</strong> tab.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── ALL MONTHS ──────────────────────────────────────────────────────────────
+// Index: 0=Jan24 1=Feb24 2=Mar24 3=Apr24 4=May24 5=Jun24
+//        6=Jul24 7=Aug24 8=Sep24 9=Oct24 10=Nov24 11=Dec24
+//        12=Jan25 13=Feb25 14=Mar25 15=Apr25 16=May25 17=Jun25
+//        18=Jul25 19=Aug25 20=Sep25 21=Oct25 22=Nov25 23=Dec25
+//        24=Jan26 25=Feb26 26=Mar26 27=Apr26 28=May26 29=Jun26
+
+// ── Data loaded from Flask API ───────────────────────────────────────────────
+let ALL_MONTH_LABELS = [];
+let RAW = [];
+let N = 0;  // global: total number of month slots - 1
+
+// ── Constants (were in hardcoded version, must be defined here) ───────────────
+const REGIONS = ['NR','WR','SR','ER','NER'];
+// Extra colours for dynamically added columns
+const CUSTOM_COL_COLORS = [
+  '#f76fa8','#38bdf8','#fb923c','#a3e635','#e879f9','#34d399','#fbbf24','#60a5fa'
+];
+
+// Which components are currently active (for Part C toggles)
+// Starts with all built-ins enabled
+let ACTIVE_COMPS = new Set(['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil']);
+
+function activeKeys() {
+  return COMP_KEYS.filter(k => ACTIVE_COMPS.has(k));
+}
+function getRangeDataActive(dic) {
+  const agg = {};
+  activeKeys().forEach(k => {
+    agg[k] = 0;
+    for (let i = slStart; i <= slEnd; i++) agg[k] += (dic['m'+i] && dic['m'+i][k]) || 0;
+  });
+  return agg;
+}
+function getTotalActive(o) {
+  return activeKeys().reduce((s,k) => s+(o[k]||0), 0);
+}
+
+const REGION_COLORS = {NR:'#4f8ef7',WR:'#f7c24f',SR:'#2ecf8e',ER:'#f7614f',NER:'#b57aff'};
+const COMP_KEYS   = ['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'];
+const COMP_LABELS = {
+  ac_ubc:'AC-UBC', ac_bc:'AC-BC', nc_re:'NC-RE',
+  nc_hvdc:'NC-HVDC', rc:'RC', trx:'TC', bil:'Bilateral', total:'Total'
+};
+const COMP_COLORS = {
+  ac_ubc:'#4f8ef7', ac_bc:'#2ecf8e', nc_re:'#f7c24f',
+  nc_hvdc:'#f7614f', rc:'#b57aff', trx:'#ff9f43', bil:'#aaaaaa'
+};
+
+// ── Missing variable declarations ─────────────────────────────────────────────
+let calSelecting = false;
+let calHover = -1;
+
+// ── Helper functions ──────────────────────────────────────────────────────────
+function getTotal(m){ if(!m) return 0; return COMP_KEYS.reduce((s,k)=>s+(m[k]||0),0); }
+function getVal(m, comp){ if(!m) return 0; if(comp==='total') return getTotal(m); return m[comp]||0; }
+function fmt(v){ if(!v) return '₹0'; const cr=Math.round(v/1e7); return '₹'+cr.toLocaleString()+'Cr'; }
+function pct(v,t){ if(!t) return '0%'; return Math.round(v/t*100)+'%'; }
+function updateFill(){
+  // Update slider fill — safely check element exists first
+  const cal = document.getElementById('cal-grid');
+  if(cal) updateCalHighlight();
+}
+
+async function loadDataFromAPI() {
+  const overlay = document.getElementById('loading-overlay');
+  const content = document.getElementById('overlay-content');
+
+  // Watch for Dark Reader trying to override our hide — remove overlay if data loaded
+  let dataLoaded = false;
+  const observer = new MutationObserver(() => {
+    if (dataLoaded) {
+      const el = document.getElementById('loading-overlay');
+      if (el) el.parentNode.removeChild(el);
+    }
+  });
+  if (overlay) observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+
+  content.innerHTML =
+    '<div style="font-size:28px;margin-bottom:12px;">📊</div>' +
+    '<div style="font-family:DM Mono,monospace;color:#4f8ef7;font-size:14px;font-weight:700;letter-spacing:1px;">LOADING DATA</div>' +
+    '<div style="font-family:DM Mono,monospace;color:#6b7385;font-size:11px;margin-top:6px;">Fetching from database…</div>';
+
+  try {
+    const resp = await fetch('/api/raw_data');
+    if (!resp.ok) throw new Error('Server returned ' + resp.status + ' ' + resp.statusText);
+    const data = await resp.json();
+    if (!data.raw || !data.monthLabels) throw new Error('Invalid response format from server');
+
+    ALL_MONTH_LABELS = data.monthLabels;
+    RAW = data.raw;
+    // Register any custom columns returned from server
+    if (data.customCols && data.customCols.length) {
+      data.customCols.forEach(col => {
+        if (!COMP_KEYS.includes(col)) {
+          COMP_KEYS.push(col);
+          COMP_LABELS[col] = col.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+          COMP_COLORS[col] = CUSTOM_COL_COLORS[COMP_KEYS.length % CUSTOM_COL_COLORS.length];
+        }
+      });
+      rebuildCompToggles();
+    }
+    dataLoaded = true;
+    observer.disconnect();
+
+    // Primary: remove from DOM — nothing can override a removed element
+    const el = document.getElementById('loading-overlay');
+    if (el) el.parentNode.removeChild(el);
+    return true;
+
+  } catch(e) {
+    observer.disconnect();
+    content.innerHTML =
+      '<div style="font-size:24px;margin-bottom:12px;">⚠️</div>' +
+      '<div style="color:#f7614f;font-family:DM Mono,monospace;font-size:13px;font-weight:700;margin-bottom:8px;">Could not load data</div>' +
+      '<div style="color:#6b7385;font-family:DM Mono,monospace;font-size:11px;line-height:1.6;max-width:360px;">' +
+      'Error: ' + e.message + '<br><br>' +
+      '1. Make sure app.py is running<br>2. Visit http://localhost:5000<br>3. Do not open the HTML file directly</div>' +
+      '<button onclick="location.reload()" style="margin-top:16px;padding:8px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:DM Mono,monospace;font-size:12px;">Retry</button>';
+    return false;
+  }
+}
+
+// Slider hover index (used in rendering)
+let _hoverSlider=-1;
+
+// Map month index → {year, monthIdx(0-11), label}
+// Computed after data loads (ALL_MONTH_LABELS comes from API)
+let MONTH_META=[];
+let YEARS=[];
+let slStart=0;
+let slEnd=0;
+function recomputeMeta(){
+  MONTH_META=ALL_MONTH_LABELS.map((l,i)=>{
+    const yr=parseInt(l.slice(-2))+2000;
+    return {i,label:l,yr};
+  });
+  YEARS=[...new Set(MONTH_META.map(m=>m.yr))];
+}
+
+function buildCalGrid(){
+  const grid=document.getElementById('cal-grid');
+  grid.innerHTML='';
+  YEARS.forEach(yr=>{
+    const col=document.createElement('div');
+    col.className='cal-year';
+    const lbl=document.createElement('div');
+    lbl.className='cal-year-label';
+    lbl.textContent=yr;
+    col.appendChild(lbl);
+    const months=document.createElement('div');
+    months.className='cal-months';
+    MONTH_META.filter(m=>m.yr===yr).forEach(m=>{
+      const cell=document.createElement('div');
+      cell.className='cal-cell';
+      cell.textContent=m.label.slice(0,3); // "Jan", "Feb" etc
+      cell.dataset.idx=m.i;
+      cell.addEventListener('click',()=>calClick(m.i));
+      cell.addEventListener('mouseenter',()=>calHoverIn(m.i));
+      cell.addEventListener('mouseleave',()=>calHoverOut());
+      months.appendChild(cell);
+    });
+    col.appendChild(months);
+    grid.appendChild(col);
+  });
+  updateCalHighlight();
+}
+
+function calClick(idx){
+  if(!calSelecting){
+    // First click: set start, enter selecting mode
+    slStart=idx;
+    slEnd=idx;
+    calSelecting=true;
+    updateCalHighlight();
+    updateInfoBar();
+    markPresets();
+  } else {
+    // Second click: set end (swap if needed)
+    if(idx<slStart){slEnd=slStart;slStart=idx;}
+    else{slEnd=idx;}
+    calSelecting=false;
+    calHover=-1;
+    updateCalHighlight();
+    updateInfoBar();
+    markPresets();
+    renderAll();
+  }
+}
+
+function calHoverIn(idx){
+  if(!calSelecting) return;
+  calHover=idx;
+  // Show preview of range
+  const lo=Math.min(slStart,idx), hi=Math.max(slStart,idx);
+  document.querySelectorAll('.cal-cell').forEach(el=>{
+    const i=parseInt(el.dataset.idx);
+    el.classList.remove('in-range','start-cell','end-cell','hover-end','selecting');
+    if(i===slStart){el.classList.add('start-cell');}
+    if(i===lo&&i!==hi){el.classList.add('start-cell');}
+    if(i===hi&&i!==lo){el.classList.add('hover-end');}
+    if(i===lo&&i===hi){el.classList.add('start-cell','end-cell');}
+    if(i>lo&&i<hi){el.classList.add('in-range');}
+  });
+  // Update info bar preview
+  const a=Math.min(slStart,idx), b=Math.max(slStart,idx);
+  document.getElementById('rp-start').textContent=ALL_MONTH_LABELS[a];
+  document.getElementById('rp-end').textContent=ALL_MONTH_LABELS[b];
+  document.getElementById('rp-count').textContent=(b-a+1)+' months';
+}
+
+function calHoverOut(){
+  if(!calSelecting) return;
+  calHover=-1;
+  updateCalHighlight();
+  updateInfoBar();
+}
+
+function updateCalHighlight(){
+  document.querySelectorAll('.cal-cell').forEach(el=>{
+    const i=parseInt(el.dataset.idx);
+    el.classList.remove('in-range','start-cell','end-cell','hover-end','selecting');
+    if(i===slStart&&i===slEnd){el.classList.add('start-cell','end-cell');}
+    else if(i===slStart){el.classList.add('start-cell');}
+    else if(i===slEnd){el.classList.add('end-cell');}
+    else if(i>slStart&&i<slEnd){el.classList.add('in-range');}
+    // Pulse if waiting for second click
+    if(calSelecting&&i===slStart){el.classList.add('selecting');}
+  });
+}
+
+function updateInfoBar(){
+  document.getElementById('rp-start').textContent=ALL_MONTH_LABELS[slStart];
+  document.getElementById('rp-end').textContent=ALL_MONTH_LABELS[slEnd];
+  document.getElementById('rp-count').textContent=(slEnd-slStart+1)+' months selected';
+}
+
+function applyPreset(s,e){
+  slStart=s; slEnd=e; calSelecting=false; calHover=-1;
+  updateCalHighlight(); updateInfoBar(); markPresets(); renderAll();
+}
+function applyPresetLast(n){
+  slEnd=N-1; slStart=Math.max(0,slEnd-n+1);
+  calSelecting=false; calHover=-1;
+  updateCalHighlight(); updateInfoBar(); markPresets(); renderAll();
+}
+
+function markPresets(){
+  // Highlight matching preset button if any
+  document.querySelectorAll('.preset-btn').forEach(btn=>{
+    btn.classList.remove('active');
+  });
+  const presets=[
+    [0,11],[12,23],[24,35],[36,41],[0,23],[12,35],[24,41],[0,41]
+  ];
+  presets.forEach(([s,e],pi)=>{
+    if(slStart===s&&slEnd===e){
+      document.querySelectorAll('.preset-btn')[pi]?.classList.add('active');
+    }
+  });
+  // Last N presets
+  [[12],[6],[3]].forEach(([n],pi)=>{
+    const expectedStart=Math.max(0,N-1-n+1);
+    if(slStart===expectedStart&&slEnd===N-1){
+      document.querySelectorAll('.preset-btn')[8+pi]?.classList.add('active');
+    }
+  });
+}
+
+// Add pulsing style for selecting state
+const selStyle=document.createElement('style');
+selStyle.textContent=`
+@keyframes calPulse{0%,100%{box-shadow:0 0 0 0 rgba(79,142,247,.4);}50%{box-shadow:0 0 0 4px rgba(79,142,247,.1);}}
+.cal-cell.selecting{animation:calPulse 1.2s ease-in-out infinite;}
+.cal-cell.start-cell.selecting{animation:calPulse 1.2s ease-in-out infinite;}
+`;
+document.head.appendChild(selStyle);
+
+// buildCalGrid, updateInfoBar, markPresets called in bootstrap after data loads
+
+// ─── Aggregate data across range ─────────────────────────────────────────────
+function getRangeData(dic){
+  const agg={};
+  COMP_KEYS.forEach(k=>{
+    agg[k]=0;
+    for(let i=slStart;i<=slEnd;i++) agg[k]+=(dic['m'+i]&&dic['m'+i][k])||0;
+  });
+  return agg;
+}
+function getMonthData(dic,mi){return dic['m'+mi];}
+
+// ─── Chart registry ──────────────────────────────────────────────────────────
+const C={};
+function dc(id){if(C[id]){C[id].destroy();delete C[id];}}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(n){
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.remove('active');
+  });
+  // Mark the clicked tab active
+  event && event.currentTarget && event.currentTarget.classList.add('active');
+  document.querySelectorAll('.tc').forEach(el=>{
+    el.classList.toggle('active', el.id==='tab-'+n);
+  });
+  if(n==='trends')       renderTrends();
+  if(n==='dic')          renderDic();
+  if(n==='completeness') renderHeatmap();
+  if(n==='audit')        renderAuditLog();
+}
+
+// ─── Overview ─────────────────────────────────────────────────────────────────
+function renderOverview(){
+  const region=document.getElementById('sel-region').value;
+  const comp=document.getElementById('sel-component').value;
+  let filtered=region==='all'?RAW:RAW.filter(d=>d.region===region);
+  const data=filtered.map(d=>({...d,_rd:getRangeData(d)}));
+  const months=(slEnd-slStart+1);
+
+  const totalCharge=data.reduce((s,d)=>s+getVal(d._rd,comp),0);
+  const totalGnash=filtered.reduce((s,d)=>s+d.gnash,0);
+  const avgCharge=data.length?totalCharge/data.length:0;
+  const topDic=data.length?data.reduce((a,b)=>getVal(a._rd,comp)>getVal(b._rd,comp)?a:b):null;
+  const compTotals=COMP_KEYS.map(k=>data.reduce((s,d)=>s+d._rd[k],0));
+  const grandTotal=compTotals.reduce((a,b)=>a+b,0);
+
+  document.getElementById('metrics').innerHTML=`
+    <div class="metric"><div class="ml">${COMP_LABELS[comp]}</div><div class="mv">${fmt(totalCharge)}</div><div class="ms">${months} month${months>1?'s':''} · ${data.length} DICs</div></div>
+    <div class="metric"><div class="ml">Total GNAsh</div><div class="mv">${totalGnash.toLocaleString()} MW</div><div class="ms">${region==='all'?'All regions':region}</div></div>
+    <div class="metric"><div class="ml">Avg per DIC</div><div class="mv">${fmt(avgCharge)}</div><div class="ms">${months} month${months>1?'s':''}</div></div>
+    <div class="metric"><div class="ml">Top DIC</div><div class="mv" style="font-size:14px;line-height:1.3">${topDic?topDic.name:'—'}</div><div class="ms">${topDic?fmt(getVal(topDic._rd,comp)):''}</div></div>
+    <div class="metric"><div class="ml">Highest Component</div><div class="mv" style="font-size:14px">${COMP_LABELS[COMP_KEYS.reduce((a,b)=>compTotals[COMP_KEYS.indexOf(a)]>compTotals[COMP_KEYS.indexOf(b)]?a:b)]}</div><div class="ms">${pct(Math.max(...compTotals),grandTotal)} of total</div></div>
+  `;
+
+  // Region bar
+  dc('region');
+  const regionData=REGIONS.map(r=>{
+    const sub=RAW.filter(d=>d.region===r).map(d=>({...d,_rd:getRangeData(d)}));
+    return sub.reduce((s,d)=>s+getVal(d._rd,comp),0);
+  });
+  document.getElementById('leg-region').innerHTML=REGIONS.map(r=>
+    `<span class="li"><span class="ld" style="background:${REGION_COLORS[r]}"></span>${r}</span>`).join('');
+  C['region']=new Chart(document.getElementById('chartRegion'),{
+    type:'bar',
+    data:{labels:REGIONS,datasets:[{data:regionData.map(v=>Math.round(v/1e7)),
+      backgroundColor:REGIONS.map(r=>region==='all'||region===r?REGION_COLORS[r]:REGION_COLORS[r]+'33'),
+      borderRadius:5,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:28}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{grid:{display:false},ticks:{color:'#6b7385',font:{size:11}}},
+              y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}}}}
+  });
+
+  // PIE for component breakdown
+  dc('comp');
+  document.getElementById('leg-comp').innerHTML=COMP_KEYS.map((k,i)=>
+    `<span class="li"><span class="ld" style="background:${COMP_COLORS[k]}"></span>${COMP_LABELS[k]} ${pct(compTotals[i],grandTotal)}</span>`).join('');
+  C['comp']=new Chart(document.getElementById('chartComp'),{
+    type:'pie',
+    data:{
+      labels:COMP_KEYS.map(k=>COMP_LABELS[k]),
+      datasets:[{data:compTotals.map(v=>Math.round(v/1e7)),
+        backgroundColor:COMP_KEYS.map(k=>COMP_COLORS[k]),
+        borderWidth:1,borderColor:'#1a1e28cc',hoverOffset:8}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{
+          const val=ctx.raw;
+          const total=ctx.dataset.data.reduce((a,b)=>a+b,0);
+          return ctx.label+': ₹'+val.toLocaleString()+'Cr ('+pct(val,total)+')';
+        }}}}}
+  });
+
+  // Top DICs stacked
+  const sorted=[...data].sort((a,b)=>getVal(b._rd,comp)-getVal(a._rd,comp)).slice(0,12);
+  const topH=sorted.length*44+60;
+  document.getElementById('top-wrap').style.height=topH+'px';
+  document.getElementById('top-title').textContent=`Top DICs — ${COMP_LABELS[comp]}`;
+  dc('top');
+  C['top']=new Chart(document.getElementById('chartTop'),{
+    type:'bar',
+    data:{
+      labels:sorted.map(d=>d.name),
+      datasets:comp==='total'
+        ?COMP_KEYS.map(k=>({label:COMP_LABELS[k],data:sorted.map(d=>Math.round(d._rd[k]/1e7)),
+            backgroundColor:COMP_COLORS[k],borderWidth:0,
+            borderRadius:k==='trx'?{topRight:4,bottomRight:4}:0,borderSkipped:false,stack:'a'}))
+        :[{label:COMP_LABELS[comp],data:sorted.map(d=>Math.round(getVal(d._rd,comp)/1e7)),
+            backgroundColor:sorted.map(d=>REGION_COLORS[d.region]),borderRadius:4,borderSkipped:false}]
+    },
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      layout:{padding:{right:110}},
+      plugins:{legend:comp==='total'?{display:true,position:'bottom',labels:{color:'#6b7385',font:{size:10},boxWidth:10,padding:12}}:{display:false},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{stacked:comp==='total',grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}},
+              y:{stacked:comp==='total',grid:{display:false},ticks:{color:'#888',font:{size:11}}}}}
+  });
+}
+
+// ─── DIC Breakdown ────────────────────────────────────────────────────────────
+function populateDicDropdown(){
+  const sel=document.getElementById('sel-dic');
+  sel.innerHTML=RAW.map(d=>`<option value="${d.name}">${d.name} (${d.region})</option>`).join('');
+  sel.addEventListener('change',renderDic);
+}
+function populateManualDicDropdown(){
+  const sel=document.getElementById('rm-dic-sel');
+  if(!sel) return;
+  const current=sel.value;
+  sel.innerHTML=RAW.map(d=>`<option value="${d.name}">${d.name} (${d.region})</option>`).join('');
+  if(current) sel.value=current;
+}
+function renderDic(){
+  const dicName=document.getElementById('sel-dic').value;
+  const dic=RAW.find(d=>d.name===dicName); if(!dic) return;
+  const rd=getRangeData(dic);
+  const total=getTotal(rd);
+  const compTotals=COMP_KEYS.map(k=>rd[k]);
+  const months=(slEnd-slStart+1);
+
+  document.getElementById('dic-stats').innerHTML=`
+    <div class="ds"><div class="dsl">Region</div><div class="dsv" style="color:${REGION_COLORS[dic.region]}">${dic.region}</div></div>
+    <div class="ds"><div class="dsl">GNAsh</div><div class="dsv">${dic.gnash.toLocaleString()} <span style="font-size:12px;color:var(--muted)">MW</span></div></div>
+    <div class="ds"><div class="dsl">Total (${months}mo)</div><div class="dsv" style="font-size:14px;">${fmt(total)}</div></div>
+    <div class="ds"><div class="dsl">Monthly Avg</div><div class="dsv" style="font-size:14px;">${fmt(total/months)}</div></div>
+    <div class="ds"><div class="dsl">Top Component</div><div class="dsv" style="font-size:12px;">${COMP_LABELS[COMP_KEYS.reduce((a,b)=>rd[a]>rd[b]?a:b)]}</div></div>
+  `;
+  document.getElementById('dic-pills').innerHTML=COMP_KEYS.map(k=>`
+    <span class="pill" style="background:${COMP_COLORS[k]}22;color:${COMP_COLORS[k]};border-color:${COMP_COLORS[k]}55">
+      ${COMP_LABELS[k]}: ${fmt(rd[k])} (${pct(rd[k],total)})</span>`).join('');
+
+  // PIE chart for selected DIC
+  dc('dicpie');
+  C['dicpie']=new Chart(document.getElementById('chartDicPie'),{
+    type:'pie',
+    data:{labels:COMP_KEYS.map(k=>COMP_LABELS[k]),
+      datasets:[{data:compTotals.map(v=>Math.round(v/1e7)),
+        backgroundColor:COMP_KEYS.map(k=>COMP_COLORS[k]),
+        borderWidth:1,borderColor:'#1a1e28cc',hoverOffset:8}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#888',font:{size:10},boxWidth:9,padding:9}},
+        tooltip:{callbacks:{label:ctx=>{
+          const val=ctx.raw; const t=ctx.dataset.data.reduce((a,b)=>a+b,0);
+          return ctx.label+': ₹'+val.toLocaleString()+'Cr ('+pct(val,t)+')';
+        }}}}}
+  });
+
+  // Stacked range bar
+  dc('diccomp');
+  C['diccomp']=new Chart(document.getElementById('chartDicComp'),{
+    type:'bar',
+    data:{labels:[dic.name],
+      datasets:COMP_KEYS.map(k=>({label:COMP_LABELS[k],data:[Math.round(rd[k]/1e7)],
+        backgroundColor:COMP_COLORS[k],borderWidth:0,
+        borderRadius:k==='trx'?{topRight:4,bottomRight:4}:0,borderSkipped:false,stack:'a'}))},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      layout:{padding:{right:110}},
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#888',font:{size:10},boxWidth:9,padding:9}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}},
+              y:{stacked:true,grid:{display:false},ticks:{color:'#888',font:{size:12}}}}}
+  });
+
+  // Monthly bar (all 18 months, highlight range)
+  document.getElementById('dic-month-title').textContent=`${dic.name} — Monthly Component Breakdown`;
+  // Use lakhs if DIC's peak monthly total is below 1Cr, else crores
+  const _dicPeak=Math.max(...Array.from({length:N},(_,i)=>COMP_KEYS.reduce((s,k)=>(s+(dic['m'+i][k]||0)),0)));
+  const _dicDiv=_dicPeak>=1e7?1e7:_dicPeak>=1e5?1e5:1e3;
+  const _dicUnit=_dicDiv===1e7?'Cr':_dicDiv===1e5?'L':'K';
+  const allMData=COMP_KEYS.map(k=>({
+    label:COMP_LABELS[k],
+    data:Array.from({length:N},(_, i)=>parseFloat(((dic['m'+i]&&dic['m'+i][k]||0)/_dicDiv).toFixed(2))),
+    backgroundColor:Array.from({length:N},(_,i)=>i>=slStart&&i<=slEnd?COMP_COLORS[k]:COMP_COLORS[k]+'44'),
+    borderWidth:0,stack:'a'
+  }));
+  dc('dicmonths');
+  C['dicmonths']=new Chart(document.getElementById('chartDicMonths'),{
+    type:'bar',
+    data:{labels:ALL_MONTH_LABELS,datasets:allMData},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:26}},
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#888',font:{size:10},boxWidth:9,padding:9}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+ctx.raw.toLocaleString()+_dicUnit}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:'#6b7385',font:{size:9}}},
+              y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+_dicUnit}}}}
+  });
+
+  // Component line/point trend for this DIC
+  document.getElementById('dic-trend-title').textContent=`${dic.name} — Component Trends (all months)`;
+
+  // Helper: build per-month segment styling
+  function mkLine(k, color, data, isTotalLine){
+    const inRange = (_,i) => i>=slStart && i<=slEnd;
+    return {
+      label: COMP_LABELS[k]||k,
+      data,
+      borderColor: color,
+      backgroundColor: color+'22',
+      borderWidth: isTotalLine ? 2.5 : 1.8,
+      borderDash: isTotalLine ? [] : [],
+      pointRadius: data.map((_,i) => inRange(_,i) ? (isTotalLine?5:3.5) : (isTotalLine?3:2)),
+      pointHoverRadius: isTotalLine ? 8 : 6,
+      pointBackgroundColor: data.map((_,i) => inRange(_,i) ? color : color+'55'),
+      pointBorderColor:     data.map((_,i) => inRange(_,i) ? '#1a1e28' : 'transparent'),
+      pointBorderWidth: isTotalLine ? 2 : 1,
+      pointStyle: isTotalLine ? 'rectRot' : 'circle',  // diamond for total, circle for components
+      fill: false,
+      tension: 0.3,
+      order: isTotalLine ? 0 : 1,   // total line drawn on top
+      segment:{
+        borderColor: ctx => ctx.p0DataIndex>=slStart&&ctx.p0DataIndex<=slEnd ? color : color+'44',
+        borderDash:  ctx => ctx.p0DataIndex>=slStart&&ctx.p0DataIndex<=slEnd ? [] : [4,3],
+      }
+    };
+  }
+
+  const TOTAL_COLOR = '#ffffff';
+  const compDatasets = COMP_KEYS.map(k =>
+    mkLine(k, COMP_COLORS[k], Array.from({length:N},(_,i)=>Math.round(dic['m'+i][k]/1e7)), false)
+  );
+  const totalData = Array.from({length:N}, (_,i) =>
+    Math.round(COMP_KEYS.reduce((s,k)=>s+dic['m'+i][k],0)/1e7)
+  );
+  const totalDataset = mkLine('total', TOTAL_COLOR, totalData, true);
+
+  const allDicTrendDatasets = [...compDatasets, totalDataset];
+
+  // Legend: components + total
+  document.getElementById('leg-dic-trend').innerHTML =
+    COMP_KEYS.map(k=>
+      `<span class="li"><span class="ld" style="background:${COMP_COLORS[k]}"></span>${COMP_LABELS[k]}</span>`
+    ).join('') +
+    `<span class="li"><span class="ld" style="background:${TOTAL_COLOR};border-radius:2px;"></span><strong>Total</strong></span>`;
+
+  dc('dictrend');
+  C['dictrend']=new Chart(document.getElementById('chartDicTrend'),{
+    type:'line',
+    data:{labels:ALL_MONTH_LABELS, datasets:allDicTrendDatasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            title: ctx => ALL_MONTH_LABELS[ctx[0].dataIndex],
+            label: ctx => {
+              const isTot = ctx.dataset.label==='Total';
+              const prefix = isTot ? '━ Total' : `  ${ctx.dataset.label}`;
+              return `${prefix}: ₹${Math.round(ctx.raw).toLocaleString()}Cr`;
+            },
+            labelColor: ctx => ({
+              borderColor: ctx.dataset.borderColor||'#fff',
+              backgroundColor: Array.isArray(ctx.dataset.pointBackgroundColor)
+                ? ctx.dataset.pointBackgroundColor[ctx.dataIndex]||ctx.dataset.borderColor
+                : ctx.dataset.borderColor,
+              borderRadius: ctx.dataset.label==='Total' ? 2 : 4,
+            }),
+          }
+        }
+      },
+      scales:{
+        x:{
+          grid:{color:'rgba(255,255,255,0.04)'},
+          ticks:{color:'#6b7385',font:{size:9},maxRotation:45}
+        },
+        y:{
+          grid:{color:'rgba(255,255,255,0.05)'},
+          ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}
+        }
+      }
+    }
+  });
+}
+
+// ─── Monthly Trends ───────────────────────────────────────────────────────────
+function renderTrends(){
+  const comp=document.getElementById('sel-component').value;
+  // Filter to selected range
+  const rangeIdxs=Array.from({length:slEnd-slStart+1},(_,i)=>slStart+i);
+  const rangeLabels=rangeIdxs.map(i=>ALL_MONTH_LABELS[i]);
+
+  const regionMonthData=REGIONS.map(r=>
+    rangeIdxs.map(mi=>{
+      const sub=RAW.filter(d=>d.region===r);
+      return Math.round(sub.reduce((s,d)=>s+getVal(d['m'+mi],comp),0)/1e7);
+    })
+  );
+  document.getElementById('leg-trend').innerHTML=REGIONS.map(r=>
+    `<span class="li"><span class="ld" style="background:${REGION_COLORS[r]}"></span>${r}</span>`).join('');
+  dc('trend');
+  C['trend']=new Chart(document.getElementById('chartTrend'),{
+    type:'line',
+    data:{labels:rangeLabels,
+      datasets:REGIONS.map((r,i)=>({label:r,data:regionMonthData[i],
+        borderColor:REGION_COLORS[r],backgroundColor:REGION_COLORS[r]+'22',
+        fill:false,tension:0.3,pointRadius:3,pointHoverRadius:6,borderWidth:2}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:9}}},
+              y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}}}}
+  });
+
+  dc('regstack');
+  C['regstack']=new Chart(document.getElementById('chartRegionStack'),{
+    type:'bar',
+    data:{labels:rangeLabels,
+      datasets:REGIONS.map(r=>({label:r,
+        data:rangeIdxs.map(mi=>Math.round(RAW.filter(d=>d.region===r).reduce((s,d)=>s+getVal(d['m'+mi],comp),0)/1e7)),
+        backgroundColor:REGION_COLORS[r],borderWidth:0,stack:'a'}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:26}},
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#888',font:{size:10},boxWidth:8,padding:9}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:'#6b7385',font:{size:9}}},
+              y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}}}}
+  });
+
+  dc('compmonth');
+  C['compmonth']=new Chart(document.getElementById('chartCompMonth'),{
+    type:'bar',
+    data:{labels:rangeLabels,
+      datasets:COMP_KEYS.map(k=>({label:COMP_LABELS[k],
+        data:rangeIdxs.map(mi=>Math.round(RAW.reduce((s,d)=>s+d['m'+mi][k],0)/1e7)),
+        backgroundColor:COMP_COLORS[k],borderWidth:0,stack:'a'}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:26}},
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#888',font:{size:10},boxWidth:8,padding:9}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ₹'+Math.round(ctx.raw).toLocaleString()+'Cr'}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:'#6b7385',font:{size:9}}},
+              y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}}}}
+  });
+}
+
+function renderAll(){
+  renderOverview();
+  const activeTab=document.querySelector('.tab.active').textContent.trim().toLowerCase();
+  if(activeTab.includes('dic'))        renderDic();
+  if(activeTab.includes('trend'))      renderTrends();
+  if(activeTab.includes('coverage') ||
+     activeTab.includes('completeness')) renderHeatmap();
+}
+
+// populateDicDropdown and renderOverview are called in bootstrap after data loads
+
+// ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
+
+// Build the range month indices & labels
+function rangeIdxs(){return Array.from({length:slEnd-slStart+1},(_,i)=>slStart+i);}
+function rangeMonths(){return rangeIdxs().map(i=>ALL_MONTH_LABELS[i]);}
+
+// Convert ₹ paise to actual rupees (values are already in rupees)
+function rupees(v){return Math.round(v);}
+
+// ── Overview data: one row per DIC per month ──────────────────────────────────
+function buildOverviewRows(){
+  const region=document.getElementById('sel-region').value;
+  let filtered=region==='all'?RAW:RAW.filter(d=>d.region===region);
+  const idxs=rangeIdxs();
+  const rows=[];
+  const header=['DIC Name','Region','GNAsh (MW)','Month',
+    'AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)','Bilateral (₹)','Total (₹)'];
+  rows.push(header);
+  filtered.forEach(d=>{
+    idxs.forEach(mi=>{
+      const m=d['m'+mi];
+      const tot=getTotal(m);
+      rows.push([
+        d.name, d.region, d.gnash, ALL_MONTH_LABELS[mi],
+        rupees(m.ac_ubc), rupees(m.ac_bc), rupees(m.nc_re),
+        rupees(m.nc_hvdc), rupees(m.rc), rupees(m.tc), rupees(m.bil||0), rupees(tot)
+      ]);
+    });
+  });
+  return rows;
+}
+
+// ── DIC data: monthly detail rows + summary row ───────────────────────────────
+function buildDicRows(){
+  const dicName=document.getElementById('sel-dic').value;
+  const dic=RAW.find(d=>d.name===dicName); if(!dic) return [];
+  const idxs=rangeIdxs();
+  const rows=[];
+  const header=['DIC Name','Region','GNAsh (MW)','Month',
+    'AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)','Bilateral (₹)','Total (₹)'];
+  rows.push(header);
+  // Monthly detail
+  const sums={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,tc:0,bil:0};
+  idxs.forEach(mi=>{
+    const m=dic['m'+mi];
+    const tot=getTotal(m);
+    COMP_KEYS.forEach(k=>sums[k]+=m[k]);
+    rows.push([
+      dic.name, dic.region, dic.gnash, ALL_MONTH_LABELS[mi],
+      rupees(m.ac_ubc), rupees(m.ac_bc), rupees(m.nc_re),
+      rupees(m.nc_hvdc), rupees(m.rc), rupees(m.tc), rupees(m.bil||0), rupees(tot)
+    ]);
+  });
+  // Summary row
+  const sumTot=COMP_KEYS.reduce((s,k)=>s+sums[k],0);
+  rows.push([
+    dic.name+' (TOTAL)', dic.region, dic.gnash,
+    ALL_MONTH_LABELS[slStart]+' – '+ALL_MONTH_LABELS[slEnd],
+    rupees(sums.ac_ubc), rupees(sums.ac_bc), rupees(sums.nc_re),
+    rupees(sums.nc_hvdc), rupees(sums.rc), rupees(sums.tc), rupees(sums.bil||0), rupees(sumTot)
+  ]);
+  return rows;
+}
+
+// ── Trends data: one row per month per region ─────────────────────────────────
+function buildTrendsRows(){
+  const comp=document.getElementById('sel-component').value;
+  const idxs=rangeIdxs();
+  const rows=[];
+  // Header: Month + one col per region + total
+  const header=['Month',...REGIONS,'All Regions'];
+  // Also add per-component breakdown cols
+  const compHeader=['Month',...REGIONS.map(r=>r+' Total'),
+    ...COMP_KEYS.map(k=>COMP_LABELS[k]+' (All Regions)'), 'Grand Total'];
+  rows.push(['Month',...REGIONS,...COMP_KEYS.map(k=>COMP_LABELS[k]+' (All)'),'Grand Total']);
+  idxs.forEach(mi=>{
+    const regionTotals=REGIONS.map(r=>
+      Math.round(RAW.filter(d=>d.region===r).reduce((s,d)=>s+getTotal(d['m'+mi]),0))
+    );
+    const compTotals=COMP_KEYS.map(k=>
+      Math.round(RAW.reduce((s,d)=>s+d['m'+mi][k],0))
+    );
+    const grand=regionTotals.reduce((a,b)=>a+b,0);
+    rows.push([ALL_MONTH_LABELS[mi],...regionTotals,...compTotals,grand]);
+  });
+  return rows;
+}
+
+// ── Generic CSV download ──────────────────────────────────────────────────────
+function rowsToCSV(rows){
+  return rows.map(r=>r.map(v=>{
+    const s=String(v);
+    return s.includes(',')||s.includes('"')||s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(',')).join('\n');
+}
+function triggerCSV(rows, filename){
+  const csv=rowsToCSV(rows);
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Generic XLSX download (SheetJS) ──────────────────────────────────────────
+function triggerXLSX(rows, filename, sheetName='Data'){
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  // Style header row bold by setting width hints
+  const colWidths=rows[0].map((_,ci)=>({
+    wch:Math.max(12,...rows.map(r=>String(r[ci]||'').length))
+  }));
+  ws['!cols']=colWidths;
+  // Freeze top row
+  ws['!freeze']={xSplit:0,ySplit:1};
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,sheetName);
+  XLSX.writeFile(wb, filename);
+}
+
+// ── filename helpers ──────────────────────────────────────────────────────────
+function rangeSlug(){
+  return ALL_MONTH_LABELS[slStart].replace("'",'')+'-'+ALL_MONTH_LABELS[slEnd].replace("'",'');
+}
+
+// ── Overview downloads ────────────────────────────────────────────────────────
+function downloadOverviewCSV(){
+  const rows=buildOverviewRows();
+  const region=document.getElementById('sel-region').value;
+  const info=`${rows.length-1} rows`;
+  document.getElementById('ov-dl-info').textContent='↓ '+info+' exported';
+  triggerCSV(rows, `ISTS_Overview_${region==='all'?'AllRegions':region}_${rangeSlug()}.csv`);
+}
+function downloadOverviewXLSX(){
+  const rows=buildOverviewRows();
+  const region=document.getElementById('sel-region').value;
+  document.getElementById('ov-dl-info').textContent='↓ '+(rows.length-1)+' rows exported';
+  triggerXLSX(rows,
+    `ISTS_Overview_${region==='all'?'AllRegions':region}_${rangeSlug()}.xlsx`,
+    'DIC Monthly Data');
+}
+
+// ── DIC downloads ─────────────────────────────────────────────────────────────
+function downloadDicCSV(){
+  const rows=buildDicRows(); if(!rows.length) return;
+  const dicName=document.getElementById('sel-dic').value.replace(/\s+/g,'_');
+  document.getElementById('dic-dl-info').textContent='↓ '+(rows.length-2)+' months + summary';
+  triggerCSV(rows, `ISTS_DIC_${dicName}_${rangeSlug()}.csv`);
+}
+function downloadDicXLSX(){
+  const rows=buildDicRows(); if(!rows.length) return;
+  const dicName=document.getElementById('sel-dic').value.replace(/\s+/g,'_');
+  document.getElementById('dic-dl-info').textContent='↓ '+(rows.length-2)+' months + summary';
+  triggerXLSX(rows,
+    `ISTS_DIC_${dicName}_${rangeSlug()}.xlsx`,
+    document.getElementById('sel-dic').value.substring(0,31));
+}
+
+// ── Trends downloads ──────────────────────────────────────────────────────────
+function downloadTrendsCSV(){
+  const rows=buildTrendsRows();
+  document.getElementById('tr-dl-info').textContent='↓ '+(rows.length-1)+' months exported';
+  triggerCSV(rows, `ISTS_Trends_${rangeSlug()}.csv`);
+}
+function downloadTrendsXLSX(){
+  const rows=buildTrendsRows();
+  document.getElementById('tr-dl-info').textContent='↓ '+(rows.length-1)+' months exported';
+  triggerXLSX(rows, `ISTS_Trends_${rangeSlug()}.xlsx`, 'Monthly Trends');
+}
+// ─── UPLOAD TAB ───────────────────────────────────────────────────────────────
+
+const COL_SPEC = [
+  {col:'DIC Name',    ex:'Maharashtra',      note:'Must match existing DIC name exactly (or new DIC will be created)'},
+  {col:'Region',      ex:'WR',               note:'NR / WR / SR / ER / NER'},
+  {col:'GNAsh (MW)',  ex:'10076',            note:'Numeric, in MW'},
+  {col:'Month',       ex:"Jan'26",           note:"Format: Mon'YY  e.g. Jul'27"},
+  {col:'AC-UBC (₹)',  ex:'1087615163',       note:'Raw rupees, numeric'},
+  {col:'AC-BC (₹)',   ex:'1349616304',       note:'Raw rupees, numeric'},
+  {col:'NC-RE (₹)',   ex:'406637187',        note:'Raw rupees, numeric'},
+  {col:'NC-HVDC (₹)', ex:'253039704',        note:'Raw rupees, numeric'},
+  {col:'RC (₹)',      ex:'102774920',        note:'Raw rupees, numeric'},
+  {col:'TC (₹)',      ex:'68688449',         note:'Raw rupees, numeric'},
+  {col:'Bilateral (₹)', ex:'5358822',          note:'Raw rupees, numeric — leave blank or 0 if none'},
+];
+
+// Build column spec table
+(function buildColTable(){
+  const tb=document.getElementById('col-table-body');
+  COL_SPEC.forEach(c=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td style="padding:6px 10px;color:var(--text);border-bottom:1px solid var(--border)22;">${c.col}</td>
+      <td style="padding:6px 10px;color:var(--accent2);border-bottom:1px solid var(--border)22;">${c.ex}</td>
+      <td style="padding:6px 10px;color:var(--muted);border-bottom:1px solid var(--border)22;">${c.note}</td>`;
+    tb.appendChild(tr);
+  });
+})();
+
+// Upload mode toggle - updated for 3 modes
+function setUploadMode(mode){
+  document.getElementById('panel-excel').style.display  = mode==='excel'  ? '' : 'none';
+  document.getElementById('panel-pdf').style.display    = mode==='pdf'    ? '' : 'none';
+  document.getElementById('panel-manual').style.display = mode==='manual' ? '' : 'none';
+  document.getElementById('panel-remove').style.display = mode==='remove' ? '' : 'none';
+  document.getElementById('mode-excel-btn').classList.toggle('active', mode==='excel');
+  document.getElementById('mode-pdf-btn').classList.toggle('active',   mode==='pdf');
+  document.getElementById('mode-manual-btn').classList.toggle('active', mode==='manual');
+  document.getElementById('mode-remove-btn').classList.toggle('active', mode==='remove');
+  if(mode==='remove') populateRemovePanel();
+  if(mode==='manual' && !document.querySelector('#manual-table-body tr')) buildManualTable();
+}
+
+// ── Drag-drop wiring ──────────────────────────────────────────────────────────
+const dz=document.getElementById('drop-zone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault(); dz.classList.remove('drag-over');
+  const f=e.dataTransfer.files[0];
+  if(f) handleFileUpload(f);
+});
+
+// ── Pending parsed rows before confirm ───────────────────────────────────────
+let _pendingRows=[];
+
+// ── Parse month label like "Jan'27" or "January,2024" or "Dec 2024" ──────────
+function parseMonthLabel(s){
+  const MMAP={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11,
+    january:0,february:1,march:2,april:3,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
+  s=String(s).trim().replace(/[''`]/g,"'").replace(/\u00a0/g,' ');
+  // Format: "Jan'26" or "Jan26"
+  let m=s.match(/^([A-Za-z]{3,9})'?(\d{2,4})$/i);
+  if(m){ const mo=MMAP[m[1].toLowerCase()]; if(mo!==undefined){let yr=parseInt(m[2]); if(yr<100) yr+=2000; return {year:yr,month:mo};} }
+  // Format: "January,2024" or "January 2024" or "Jan, 2024"
+  m=s.match(/^([A-Za-z]{3,9})[,\s]+(\d{4})$/i);
+  if(m){ const mo=MMAP[m[1].toLowerCase()]; if(mo!==undefined) return {year:parseInt(m[2]),month:mo}; }
+  // Format: "12/2024" or "2024-12"
+  m=s.match(/^(\d{1,2})[\/\-](\d{4})$/);
+  if(m) return {year:parseInt(m[2]),month:parseInt(m[1])-1};
+  m=s.match(/^(\d{4})[\/\-](\d{1,2})$/);
+  if(m) return {year:parseInt(m[1]),month:parseInt(m[2])-1};
+  return null;
+}
+
+// ── Detect if this is a Power Grid native format workbook ─────────────────────────
+// Native format: row1=Annexure-III, row2=title with month, row3/4=merged headers, row5+=data
+function detectPGCILNative(ws){
+  const rawRows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+  if(rawRows.length < 5) return null;
+  // Title row (row 2, index 1) should contain "billing month of"
+  const titleCell = rawRows[1] && rawRows[1][0] ? String(rawRows[1][0]) : '';
+  if(!titleCell.toLowerCase().includes('billing month')) return null;
+  // Extract month from title: "...billing month of December,2024"
+  const mMatch = titleCell.match(/billing month of ([A-Za-z]+)[,\s]+(\d{4})/i);
+  if(!mMatch) return null;
+  const mp = parseMonthLabel(mMatch[1]+','+mMatch[2]);
+  if(!mp) return null;
+  return {rawRows, year:mp.year, month:mp.month, titleCell};
+}
+
+// ── Parse Power Grid native rows → standard parsed array ──────────────────────────
+function parsePGCILNative(rawRows, year, month){
+  const parsed=[], errors=[];
+  // Data starts at row index 4 (0-based), cols: [0]=sno [1]=DIC [2]=region [3]=gnash [4]=ac_ubc [5]=ac_bc [6]=nc_re [7]=nc_hvdc [8]=rc [9]=tc
+  for(let i=4; i<rawRows.length; i++){
+    const r=rawRows[i];
+    if(!r || !r[1]) continue;
+    const dicName=String(r[1]).trim().replace(/\u00a0/g,' ').replace(/\s+/g,' ');
+    // Skip TOTAL row and PG-HVDC rows (no GNAsh) and purely bilateral rows
+    if(dicName.toUpperCase().startsWith('TOTAL')) continue;
+    const region=r[2] ? String(r[2]).trim().toUpperCase() : '';
+    if(!['NR','WR','SR','ER','NER'].includes(region)){ errors.push(`Row ${i+1}: unknown region "${region}" for "${dicName}"`); continue; }
+    const gnash = parseInt(r[3])||0;
+    const ac_ubc  = parseFloat(r[4])||0;
+    const ac_bc   = parseFloat(r[5])||0;
+    const nc_re   = parseFloat(r[6])||0;
+    const nc_hvdc = parseFloat(r[7])||0;
+    const rc      = parseFloat(r[8])||0;
+    const tc      = parseFloat(r[9])||0;
+    const bil     = parseFloat(r[10])||0;
+    // Skip rows with zero across all components (bilateral-only entities)
+    if(ac_ubc===0 && ac_bc===0 && nc_re===0 && nc_hvdc===0 && rc===0 && tc===0 && bil===0) continue;
+    parsed.push({dicName, region, gnash, year, month, ac_ubc, ac_bc, nc_re, nc_hvdc, rc, tc, bil});
+  }
+  return {parsed, errors};
+}
+
+// ── Smart file upload handler ─────────────────────────────────────────────────
+function handleFileUpload(file){
+  if(!file) return;
+  const resEl=document.getElementById('upload-result');
+  const prevEl=document.getElementById('upload-preview');
+  resEl.style.display=''; prevEl.style.display='none';
+  resEl.innerHTML=`<div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;">⏳ Detecting format of <strong>${file.name}</strong>…</div>`;
+
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+
+      // ── Try PGCIL native format first ──
+      const pgcil=detectPGCILNative(ws);
+      if(pgcil){
+        const {parsed, errors}=parsePGCILNative(pgcil.rawRows, pgcil.year, pgcil.month);
+        if(!parsed.length){
+          resEl.innerHTML=msg('error','Detected Power Grid format but could not extract data. '+errors.slice(0,2).join('; '));
+          return;
+        }
+        const label=buildMonthLabel(pgcil.year, pgcil.month);
+        _pendingRows=parsed;
+        resEl.innerHTML=msg('ok',
+          `<span style="background:#1a2a1a;color:#2ecf8e;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">POWER GRID NATIVE</span>`+
+          `Auto-detected <strong>${label}</strong> from title. Parsed <strong>${parsed.length}</strong> DICs.`+
+          (errors.length?` <span style="color:#f7c24f">${errors.length} row(s) skipped.</span>`:''));
+        buildPreviewTable(parsed);
+        prevEl.style.display='';
+        document.getElementById('preview-count').textContent=parsed.length+' rows · '+label;
+        return;
+      }
+
+      // ── Fall back to template / multi-month format ──
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!rows.length){ resEl.innerHTML=msg('error','File appears empty or unreadable.'); return; }
+
+      const required=['DIC Name','Region','Month','AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)'];
+      const keys=Object.keys(rows[0]);
+      const missing=required.filter(r=>!keys.includes(r));
+      if(missing.length){
+        resEl.innerHTML=msg('error',
+          `<span style="background:#2a2010;color:#f7c24f;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">FORMAT UNKNOWN</span>`+
+          'Missing columns: '+missing.join(', ')+'.<br>This doesn\'t look like a Power Grid native file or the dashboard template. Please download the template or upload a standard Power Grid monthly billing sheet.');
+        return;
+      }
+
+      const parsed=[]; const errors=[];
+      rows.forEach((r,i)=>{
+        const mp=parseMonthLabel(r['Month']);
+        if(!mp){errors.push(`Row ${i+2}: invalid month "${r['Month']}"`); return;}
+        parsed.push({
+          dicName:String(r['DIC Name']).trim(),
+          region:String(r['Region']).trim().toUpperCase(),
+          gnash:parseInt(r['GNAsh (MW)'])||0,
+          year:mp.year, month:mp.month,
+          ac_ubc:parseFloat(r['AC-UBC (₹)'])||0,
+          ac_bc: parseFloat(r['AC-BC (₹)'])||0,
+          nc_re: parseFloat(r['NC-RE (₹)'])||0,
+          nc_hvdc:parseFloat(r['NC-HVDC (₹)'])||0,
+          rc:    parseFloat(r['RC (₹)'])||0,
+          tc:    parseFloat(r['TC (₹)'])||0,
+          bil:   parseFloat(r['Bilateral (₹)'])||0,
+        });
+      });
+
+      if(!parsed.length){ resEl.innerHTML=msg('error','No valid rows found. '+errors.slice(0,3).join('; ')); return; }
+
+      _pendingRows=parsed;
+      resEl.innerHTML=msg('ok',
+        `<span style="background:#1a1e2a;color:#4f8ef7;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">TEMPLATE FORMAT</span>`+
+        `Parsed <strong>${parsed.length}</strong> row(s) from <strong>${file.name}</strong>.`+
+        (errors.length?` <span style="color:#f7c24f">${errors.length} row(s) skipped.</span>`:''));
+      buildPreviewTable(parsed);
+      prevEl.style.display='';
+      document.getElementById('preview-count').textContent=parsed.length+' rows';
+
+    } catch(err){
+      resEl.innerHTML=msg('error','Parse error: '+err.message+'. Make sure the file is a valid .xlsx or .csv.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─── REMOVE MONTH DATA ────────────────────────────────────────────────────────
+function populateRemovePanel(){
+  // Populate month dropdown with all existing months
+  const sel=document.getElementById('rm-month-sel');
+  sel.innerHTML=ALL_MONTH_LABELS.map((l,i)=>`<option value="${i}">${l}</option>`).join('');
+  // Set default to last month
+  sel.value=ALL_MONTH_LABELS.length-1;
+
+  // Populate DIC dropdown
+  const dicSel=document.getElementById('rm-dic-sel');
+  dicSel.innerHTML=RAW.map(d=>`<option value="${d.name}">${d.name} (${d.region})</option>`).join('');
+
+  updateRemovePreview();
+}
+
+document.getElementById('rm-scope').addEventListener('change',function(){
+  document.getElementById('rm-region-wrap').style.display=this.value==='region'?'':'none';
+  document.getElementById('rm-dic-wrap').style.display=this.value==='dic'?'':'none';
+});
+
+function getRemoveTargets(){
+  const mi=parseInt(document.getElementById('rm-month-sel').value);
+  const scope=document.getElementById('rm-scope').value;
+  let dics=RAW;
+  if(scope==='region'){
+    const reg=document.getElementById('rm-region-sel').value;
+    dics=RAW.filter(d=>d.region===reg);
+  } else if(scope==='dic'){
+    const name=document.getElementById('rm-dic-sel').value;
+    dics=RAW.filter(d=>d.name===name);
+  }
+  return {mi, dics};
+}
+
+function updateRemovePreview(){
+  const {mi,dics}=getRemoveTargets();
+  if(mi<0||mi>=ALL_MONTH_LABELS.length){ document.getElementById('rm-preview').textContent='Select a valid month.'; return; }
+  const label=ALL_MONTH_LABELS[mi];
+  // Count dics with non-zero data in this month
+  const withData=dics.filter(d=>{
+    const m=d['m'+mi]; return m && COMP_KEYS.some(k=>(m[k]||0)>0);
+  });
+  const totCharge=withData.reduce((s,d)=>s+getTotal(d['m'+mi]),0);
+  const scope=document.getElementById('rm-scope').value;
+  document.getElementById('rm-preview').innerHTML=`
+    <div style="color:var(--text);margin-bottom:6px;font-weight:700;">
+      ${scope==='all'?'All DICs':''}${scope==='region'?'Region: '+document.getElementById('rm-region-sel').value:''}${scope==='dic'?'DIC: '+document.getElementById('rm-dic-sel').value:''} · ${label}
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+      <span>DICs affected: <strong style="color:#f7614f">${withData.length}</strong> of ${dics.length}</span>
+      <span>Total charge to remove: <strong style="color:#f7614f">${fmt(totCharge)}</strong></span>
+      <span>DICs with no data: <strong style="color:var(--muted)">${dics.length-withData.length}</strong> (already zero)</span>
+    </div>
+    ${withData.length===0?'<div style="color:#2ecf8e;margin-top:6px;">✓ No data exists for this selection — nothing to remove.</div>':''}`;
+}
+
+function executeRemove(){
+  const {mi,dics}=getRemoveTargets();
+  const label=ALL_MONTH_LABELS[mi];
+  const scope=document.getElementById('rm-scope').value;
+  const withData=dics.filter(d=>{ const m=d['m'+mi]; return m && COMP_KEYS.some(k=>(m[k]||0)>0); });
+  if(!withData.length){
+    document.getElementById('rm-status').textContent='Nothing to remove — all values already zero.';
+    document.getElementById('rm-status').style.color='#2ecf8e';
+    return;
+  }
+  const scopeDesc=scope==='all'?'all DICs':scope==='region'?'region '+document.getElementById('rm-region-sel').value:'DIC "'+document.getElementById('rm-dic-sel').value+'"';
+  if(!confirm(`Zero-out data for ${scopeDesc} in ${label}? This will set ${withData.length} DIC(s) to zero. This cannot be undone.`)) return;
+
+  withData.forEach(d=>{ d['m'+mi]={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,tc:0,bil:0}; });
+
+  // Log
+  addAuditEntry('remove', `Zeroed ${withData.length} DIC(s) for ${label} (${scopeDesc})`, 'manual-remove');
+  const logEl=document.getElementById('remove-log');
+  if(logEl.querySelector('em')) logEl.innerHTML='';
+  const entry=document.createElement('div'); entry.className='log-entry';
+  entry.innerHTML=`<span class="log-badge" style="background:#2a1a1a;color:#f7614f;">REMOVED</span>
+    <span style="color:var(--text);"><strong>${label}</strong> · ${withData.length} DIC(s) zeroed · ${scopeDesc}</span>`;
+  logEl.prepend(entry);
+
+  document.getElementById('rm-status').textContent=`✓ Zeroed ${withData.length} DIC(s) in ${label}.`;
+  document.getElementById('rm-status').style.color='#2ecf8e';
+  updateRemovePreview();
+  renderAll();
+}
+function downloadTemplate(){
+  const header=COL_SPEC.map(c=>c.col);
+  const example=[COL_SPEC.map(c=>c.ex)];
+  // Add a blank row for user
+  example.push(header.map(()=>''));
+  const ws=XLSX.utils.aoa_to_sheet([header,...example]);
+  ws['!cols']=header.map(h=>({wch:Math.max(h.length+4,16)}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Data');
+  XLSX.writeFile(wb,'ISTS_Upload_Template.xlsx');
+}
+
+// ── Core helpers ─────────────────────────────────────────────────────────────
+function buildMonthLabel(year,month){
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return M[month]+"'"+(year%100).toString().padStart(2,'0');
+}
+function monthKey(year,month){return year+'-'+month;}
+function getOrCreateMonthIndex(year,month){
+  const label=buildMonthLabel(year,month);
+  let idx=ALL_MONTH_LABELS.indexOf(label);
+  if(idx>=0) return idx;
+  ALL_MONTH_LABELS.push(label);
+  const newIdx=ALL_MONTH_LABELS.length-1;
+  // Extend every existing DIC with a zero-slot for the new month (use 'trx' not 'tc')
+  RAW.forEach(d=>{d['m'+newIdx]={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};});
+  // Rebuild calendar to show new month, update range end
+  recomputeMeta();
+  buildCalGrid();
+  slEnd=newIdx;
+  N=newIdx;
+  return newIdx;
+}
+function rebuildTicks(){
+  const tc=document.getElementById('month-ticks');
+  tc.innerHTML='';
+  ALL_MONTH_LABELS.forEach(l=>{
+    const s=document.createElement('span');
+    s.textContent=l;
+    if(l.startsWith('Jan')) s.classList.add('yr');
+    tc.appendChild(s);
+  });
+}
+function msg(type,html){
+  const col=type==='ok'?'#2ecf8e':'#f7614f';
+  const bg=type==='ok'?'#1e2a1a':'#2a1a1a';
+  return `<div style="background:${bg};border:1px solid ${col}44;border-radius:8px;padding:10px 14px;font-size:12px;font-family:'DM Mono',monospace;color:${col};">${html}</div>`;
+}
+function buildPreviewTable(rows){
+  const tbl=document.getElementById('preview-table');
+  const cols=['DIC Name','Region','Month','AC-UBC','AC-BC','NC-RE','NC-HVDC','RC','TC','Bilateral','Total'];
+  tbl.innerHTML='<thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead>';
+  const tbody=document.createElement('tbody');
+  rows.forEach(r=>{
+    const tot=r.ac_ubc+r.ac_bc+r.nc_re+r.nc_hvdc+r.rc+r.tc+(r.bil||0);
+    const label=buildMonthLabel(r.year,r.month);
+    const tr=document.createElement('tr');
+    tr.innerHTML=[r.dicName,r.region,label,
+      fmtRaw(r.ac_ubc),fmtRaw(r.ac_bc),fmtRaw(r.nc_re),
+      fmtRaw(r.nc_hvdc),fmtRaw(r.rc),fmtRaw(r.tc),fmtRaw(r.bil||0),fmtRaw(tot)
+    ].map(v=>`<td>${v}</td>`).join('');
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+}
+function fmtRaw(v){return v?'₹'+Math.round(v/1e7).toLocaleString()+'Cr':'—';}
+
+// ── Confirm upload → merge into RAW ──────────────────────────────────────────
+function confirmUpload(){
+  if(!_pendingRows.length) return;
+  const added=[]; const updated=[];
+  _pendingRows.forEach(r=>{
+    const mi=getOrCreateMonthIndex(r.year,r.month);
+    let dic=RAW.find(d=>d.name===r.dicName);
+    if(!dic){
+      // New DIC — create with zeros for all existing months
+      dic={name:r.dicName, region:r.region, gnash:r.gnash};
+      for(let i=0;i<ALL_MONTH_LABELS.length;i++) dic['m'+i]={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
+      RAW.push(dic);
+      added.push(r.dicName);
+      // Refresh DIC dropdowns
+      populateDicDropdown();
+      populateManualDicDropdown();
+    } else {
+      if(r.gnash) dic.gnash=r.gnash;
+      updated.push(r.dicName);
+    }
+    dic['m'+mi]={ac_ubc:r.ac_ubc,ac_bc:r.ac_bc,nc_re:r.nc_re,nc_hvdc:r.nc_hvdc,rc:r.rc,trx:r.tc||0,bil:r.bil||0};
+  });
+
+  // Log
+  const ts=new Date().toLocaleTimeString();
+  const logEl=document.getElementById('upload-log');
+  if(logEl.querySelector('em')) logEl.innerHTML='';
+  const entry=document.createElement('div');
+  entry.className='log-entry';
+  entry.innerHTML=`<span class="log-badge ok">OK</span>
+    <span style="color:var(--text);">${ts} — <strong>${_pendingRows.length}</strong> row(s) merged.
+    ${added.length?'New DICs: '+[...new Set(added)].join(', ')+'.':''}
+    ${updated.length?Math.min(updated.length,5)+' DIC(s) updated.':''}</span>`;
+  logEl.prepend(entry);
+
+  _pendingRows=[];
+  document.getElementById('upload-preview').style.display='none';
+  document.getElementById('upload-result').innerHTML=msg('ok','✓ Data merged into dashboard. Charts and slider updated.');
+
+  // Refresh all charts
+  slEnd=ALL_MONTH_LABELS.length-1;
+  N=slEnd;
+  recomputeMeta();
+  buildCalGrid();
+  updateInfoBar();
+  markPresets();
+  renderAll();
+}
+
+function cancelUpload(){
+  _pendingRows=[];
+  document.getElementById('upload-preview').style.display='none';
+  document.getElementById('upload-result').innerHTML='';
+  document.getElementById('file-input').value='';
+}
+
+
+// ─── MANUAL TABLE ENTRY ───────────────────────────────────────────────────────
+function buildManualTable() {
+  const tbody = document.getElementById('manual-table-body');
+  tbody.innerHTML = '';
+  _manualRowCount = 0;
+  RAW.forEach(d => addManualRow(d.name, d.region, d.gnash));
+  updateManualTotals();
+}
+
+let _manualRowCount = 0;
+
+function addManualRow(name='', region='NR', gnash='') {
+  const tbody = document.getElementById('manual-table-body');
+  const id = _manualRowCount++;
+  const rowNum = tbody.rows.length + 1;
+  const tr = document.createElement('tr');
+  tr.id = 'mtr-' + id;
+  tr.dataset.id = id;
+  const regionOpts = ['NR','WR','SR','ER','NER'].map(r =>
+    `<option value="${r}" ${r===region?'selected':''}>${r}</option>`).join('');
+  tr.innerHTML = `
+    <td style="text-align:center;color:var(--muted);font-size:10px;padding:3px 4px;border-bottom:1px solid var(--border)22;width:26px;">${rowNum}</td>
+    <td style="padding:3px 6px;border-bottom:1px solid var(--border)22;">
+      <input class="mt-input mt-name-input" type="text" placeholder="DIC name…" value="${name}"
+        oninput="onManualNameInput(this,${id})" data-field="name" style="text-align:left;min-width:130px;">
+    </td>
+    <td style="padding:3px 4px;border-bottom:1px solid var(--border)22;text-align:center;">
+      <select class="mt-region-sel" data-field="region" onchange="updateManualTotals()">
+        ${regionOpts}
+      </select>
+    </td>
+    <td style="padding:3px 4px;border-bottom:1px solid var(--border)22;">
+      <input class="mt-input" type="number" placeholder="0" value="${gnash||''}"
+        data-field="gnash" min="0" style="max-width:68px;" oninput="updateManualTotals()">
+    </td>
+    ${COMP_KEYS.map(k => `
+    <td style="padding:3px 4px;border-bottom:1px solid var(--border)22;">
+      <input class="mt-input" type="number" placeholder="0" data-field="${k}" min="0"
+        oninput="onManualValInput(this,${id})" style="max-width:105px;">
+    </td>`).join('')}
+    <td style="padding:3px 8px;border-bottom:1px solid var(--border)22;text-align:right;white-space:nowrap;">
+      <span id="mtr-tot-${id}" style="font-size:10px;color:var(--muted);">—</span>
+    </td>
+    <td style="padding:3px 4px;border-bottom:1px solid var(--border)22;width:26px;">
+      <button class="mt-del-btn" onclick="removeManualRow(${id})" title="Remove row">✕</button>
+    </td>`;
+  tbody.appendChild(tr);
+}
+
+function onManualNameInput(input, id) {
+  const val = input.value.trim();
+  if (!val) return;
+  const match = RAW.find(d => d.name.toLowerCase() === val.toLowerCase());
+  if (match) {
+    const tr = document.getElementById('mtr-' + id);
+    const regSel = tr.querySelector('[data-field="region"]');
+    const gnashInp = tr.querySelector('[data-field="gnash"]');
+    if (regSel) regSel.value = match.region;
+    if (gnashInp && !gnashInp.value) gnashInp.value = match.gnash;
+  }
+  updateManualTotals();
+}
+
+function onManualValInput(input, id) {
+  const tr = document.getElementById('mtr-' + id);
+  const vals = COMP_KEYS.map(k => parseFloat(tr.querySelector(`[data-field="${k}"]`).value)||0);
+  const tot = vals.reduce((a,b)=>a+b,0);
+  const totEl = document.getElementById('mtr-tot-' + id);
+  if (totEl) {
+    totEl.textContent = tot > 0 ? '₹'+Math.round(tot).toLocaleString('en-IN') : '—';
+    totEl.style.color = tot > 0 ? 'var(--text)' : 'var(--muted)';
+  }
+  tr.classList.toggle('has-data', tot > 0);
+  updateManualTotals();
+}
+
+function removeManualRow(id) {
+  const tr = document.getElementById('mtr-' + id);
+  if (tr) tr.remove();
+  renumberManualRows();
+  updateManualTotals();
+}
+
+function renumberManualRows() {
+  document.querySelectorAll('#manual-table-body tr').forEach((tr, i) => {
+    const firstTd = tr.querySelector('td');
+    if (firstTd) firstTd.textContent = i + 1;
+  });
+}
+
+function updateManualTotals() {
+  const sums = { ac_ubc:0, ac_bc:0, nc_re:0, nc_hvdc:0, rc:0, tc:0, bil:0 };
+  document.querySelectorAll('#manual-table-body tr').forEach(tr => {
+    COMP_KEYS.forEach(k => {
+      const inp = tr.querySelector(`[data-field="${k}"]`);
+      if (inp) sums[k] += parseFloat(inp.value)||0;
+    });
+  });
+  const tot = Object.values(sums).reduce((a,b)=>a+b,0);
+  const fC = v => v > 0 ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
+  const ids = { ac_ubc:'mt-ubc', ac_bc:'mt-bc', nc_re:'mt-re', nc_hvdc:'mt-hvdc', rc:'mt-rc', tc:'mt-tc', bil:'mt-bil' };
+  Object.entries(ids).forEach(([k,elId]) => { const el=document.getElementById(elId); if(el) el.textContent=fC(sums[k]); });
+  const totEl = document.getElementById('mt-tot');
+  if (totEl) totEl.textContent = fC(tot);
+}
+
+function clearManualTable() {
+  document.querySelectorAll('#manual-table-body tr').forEach(tr => {
+    COMP_KEYS.forEach(k => { const inp=tr.querySelector(`[data-field="${k}"]`); if(inp) inp.value=''; });
+    const g=tr.querySelector('[data-field="gnash"]'); if(g) g.value='';
+    tr.classList.remove('has-data');
+    const id = parseInt(tr.dataset.id);
+    const totEl = document.getElementById('mtr-tot-'+id);
+    if(totEl){totEl.textContent='—'; totEl.style.color='var(--muted)';}
+  });
+  updateManualTotals();
+  document.getElementById('manual-status').textContent = '';
+}
+
+function prefillTableFromLastMonth() {
+  const year  = parseInt(document.getElementById('man-year').value);
+  const month = parseInt(document.getElementById('man-month').value);
+  const targetLabel = buildMonthLabel(year, month);
+  let srcIdx = -1;
+  const curIdx = ALL_MONTH_LABELS.indexOf(targetLabel);
+  const startFrom = curIdx >= 0 ? curIdx - 1 : ALL_MONTH_LABELS.length - 1;
+  for (let i = startFrom; i >= 0; i--) {
+    const hasAny = RAW.some(d => { const m=d['m'+i]; return m && COMP_KEYS.some(k=>(m[k]||0)>0); });
+    if (hasAny) { srcIdx = i; break; }
+  }
+  if (srcIdx < 0) {
+    document.getElementById('man-month-status').textContent = '⚠ No previous month data found.';
+    return;
+  }
+  document.querySelectorAll('#manual-table-body tr').forEach(tr => {
+    const nameInp = tr.querySelector('[data-field="name"]');
+    if (!nameInp) return;
+    const dic = RAW.find(d => d.name.toLowerCase() === nameInp.value.trim().toLowerCase());
+    if (!dic) return;
+    const m = dic['m' + srcIdx];
+    if (!m) return;
+    COMP_KEYS.forEach(k => { const inp=tr.querySelector(`[data-field="${k}"]`); if(inp) inp.value=m[k]||''; });
+    const firstComp = tr.querySelector('[data-field="ac_ubc"]');
+    if (firstComp) onManualValInput(firstComp, parseInt(tr.dataset.id));
+  });
+  updateManualTotals();
+  const stEl = document.getElementById('man-month-status');
+  stEl.textContent = '↑ Copied from ' + ALL_MONTH_LABELS[srcIdx];
+  stEl.style.color = 'var(--accent)';
+}
+
+function submitManualTable() {
+  const year  = parseInt(document.getElementById('man-year').value);
+  const month = parseInt(document.getElementById('man-month').value);
+  const label = buildMonthLabel(year, month);
+  const rows = [], skipped = [];
+
+  document.querySelectorAll('#manual-table-body tr').forEach(tr => {
+    const nameInp = tr.querySelector('[data-field="name"]');
+    if (!nameInp) return;
+    const dicName = nameInp.value.trim();
+    if (!dicName) return;
+    const region = tr.querySelector('[data-field="region"]').value;
+    const gnash  = parseInt(tr.querySelector('[data-field="gnash"]').value)||0;
+    const vals = {};
+    COMP_KEYS.forEach(k => { vals[k] = parseFloat(tr.querySelector(`[data-field="${k}"]`).value)||0; });
+    const tot = Object.values(vals).reduce((a,b)=>a+b,0);
+    if (tot === 0) { skipped.push(dicName); return; }
+    rows.push({ dicName, region, gnash, year, month, ...vals });
+  });
+
+  if (!rows.length) {
+    document.getElementById('manual-status').textContent = '⚠ No non-zero rows to save.';
+    document.getElementById('manual-status').style.color = '#f7c24f';
+    return;
+  }
+
+  const { conflicts, clean } = findConflicts(rows);
+  if (conflicts.length > 0) {
+    startConflictResolution(conflicts, clean, r => mergeManualRows(r, label));
+  } else {
+    mergeManualRows(rows, label);
+  }
+}
+
+function mergeManualRows(rows, label) {
+  rows.forEach(r => {
+    const mi = getOrCreateMonthIndex(r.year, r.month);
+    let dic = RAW.find(d => d.name === r.dicName);
+    const isNew = !dic;
+    if (isNew) {
+      dic = { name:r.dicName, region:r.region, gnash:r.gnash };
+      for (let i=0; i<ALL_MONTH_LABELS.length; i++)
+        dic['m'+i] = { ac_ubc:0, ac_bc:0, nc_re:0, nc_hvdc:0, rc:0, trx:0, bil:0 };
+      RAW.push(dic);
+      populateDicDropdown();
+    } else {
+      if (r.gnash) dic.gnash = r.gnash;
+    }
+    dic['m'+mi] = { ac_ubc:r.ac_ubc, ac_bc:r.ac_bc, nc_re:r.nc_re,
+                    nc_hvdc:r.nc_hvdc, rc:r.rc, trx:r.tc||0, bil:r.bil||0 };
+    addAuditEntry(isNew?'add':r._overwrite?'overwrite':'edit',
+      `"${r.dicName}" · ${label} · ₹${Math.round(COMP_KEYS.reduce((s,k)=>s+r[k],0)/1e7)}Cr`, 'manual-table');
+  });
+
+  const logEl = document.getElementById('manual-log');
+  if (logEl.querySelector('em')) logEl.innerHTML = '';
+  const entry = document.createElement('div'); entry.className='log-entry';
+  entry.innerHTML = `<span class="log-badge ok">OK</span>
+    <span style="color:var(--text);"><strong>${label}</strong> — ${rows.length} DIC(s) saved.</span>`;
+  logEl.prepend(entry);
+
+  document.getElementById('manual-status').textContent = `✓ ${rows.length} DIC(s) saved for ${label}.`;
+  document.getElementById('manual-status').style.color = '#2ecf8e';
+  slEnd = ALL_MONTH_LABELS.length - 1;
+  N = slEnd;
+  recomputeMeta();
+  buildCalGrid();
+  updateInfoBar();
+  markPresets();
+  persistData();
+
+  // Persist to SQLite database
+  const dbRows = rows.map(r => ({
+    dicName: r.dicName, region: r.region, gnash: r.gnash,
+    year: r.year, month: r.month,
+    ac_ubc: r.ac_ubc, ac_bc: r.ac_bc, nc_re: r.nc_re,
+    nc_hvdc: r.nc_hvdc, rc: r.rc, trx: r.tc || r.trx || 0, bil: r.bil || 0,
+  }));
+  fetch('/api/save_rows', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({rows: dbRows, overwrite: true})
+  }).then(r => r.json()).then(res => {
+    const el = document.getElementById('manual-status');
+    if (el) el.textContent += res.error
+      ? ` ⚠ DB error: ${res.error}`
+      : ` ✓ Saved to DB (${res.inserted} inserted)`;
+  }).catch(() => {});
+
+  renderAll();
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POSOCO PDF PARSER  (JS port of posoco_parser.py v5-final)
+// ══════════════════════════════════════════════════════════════════════════════
+const PDF_REGIONS = new Set(['NR','WR','SR','ER','NER']);
+
+const PDF_BILATERAL_FRAGS = [
+  'northern railways','north central railways',
+  'rapp 7&8','adani renewable energy park',
+  'acme solar','thdc india','holding seventeen','essel saurya',
+  'adani power limited','mahan energen','netra wind',
+  'bhavini','betam','jsw renew','renew solar',
+  'ntpc, north karanpura','nhpc ltd',
+  'adani solar energy','abc rj land','juniper green',
+  'amp energy','luceo solar','bn hybrid','cannice',
+  'shikhar surya','rajasthan solar park','holding four',
+  'acme solar holdings pvt. ltd.-',
+];
+
+const PDF_MONTH_NAMES = {
+  january:1,february:2,march:3,april:4,may:5,june:6,
+  july:7,august:8,september:9,october:10,november:11,december:12
+};
+
+const PDF_NOISE_EXACT = new Set([
+  'S.No','S.No.','Zone','Region','GNAsh','AC-UBC','AC-BC','NC-RE','NC-HVDC',
+  'RC','TC','Total','Bilateral','Transmission','(₹)','C','B','Cha','Bi',
+  'Bilate','National Component (₹)','Regional','Component','Transformers',
+  'TOTAL','TOTAL AMOUNT','ARE','on','Regi','charges (₹)','component (₹)',
+]);
+
+const PDF_NOISE_FRAGS = [
+  'usage based','balance ac','system charges','national component',
+  'regional component','transformers component','ac-ubc','ac-bc',
+  'nc-re','nc-hvdc','bilateral charges','total transmission',
+  'charges payable','without waiver','gna+','gnash','(in mw)',
+  'designated ists','billing month','transmission charges for',
+  'note:','accordingly','phase-i','urtdsm','phasor',
+  'nldc','ntamc','as per cerc',
+];
+
+function pdfCleanNum(s) {
+  s = String(s).replace(/,/g,'').replace(/₹/g,'').trim();
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? null : n;
+}
+function pdfIsRegion(s) { return PDF_REGIONS.has(s.trim()); }
+function pdfIsBilateral(name) {
+  const n = name.toLowerCase();
+  return PDF_BILATERAL_FRAGS.some(f => n.includes(f));
+}
+function pdfStripNoise(lines) {
+  return lines.filter(l => {
+    const t = l.trim();
+    if (!t || PDF_NOISE_EXACT.has(t)) return false;
+    const low = t.toLowerCase();
+    if (PDF_NOISE_FRAGS.some(f => low.includes(f))) return false;
+    return true;
+  }).map(l => l.trim());
+}
+
+function pdfSplitSections(lines) {
+  const sections = [];
+  let cur = [], curMon = null, curYr = null;
+  for (const line of lines) {
+    const m = line.match(/billing month of\s+(\w+)[,\s]+(\d{4})/i);
+    if (m) {
+      const mname = m[1].toLowerCase(); const yr = parseInt(m[2]);
+      if (PDF_MONTH_NAMES[mname] !== undefined) {
+        if (curMon !== null && cur.length) sections.push([curMon, curYr, cur]);
+        curMon = PDF_MONTH_NAMES[mname]; curYr = yr; cur = [line]; continue;
+      }
+    }
+    cur.push(line);
+  }
+  if (curMon !== null && cur.length) sections.push([curMon, curYr, cur]);
+  return sections;
+}
+
+function pdfMonthIdx(year, month) { return (year - 2021) * 12 + (month - 1); }
+
+function pdfExtractFields(name, region, nums) {
+  if (!nums.length) return null;
+  const empty = {ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
+  if (pdfIsBilateral(name)) {
+    let bil = 0;
+    for (let i = 0; i < nums.length - 1; i++) {
+      if (nums[i] === nums[i+1] && nums[i] > 0) { bil = nums[i]; break; }
+    }
+    if (!bil && nums.length) bil = nums[0];
+    return {...empty, name, region, gnash:0, bil};
+  }
+  if (nums.length < 6) return null;
+  let gnash = nums[0] <= 20000 ? nums[0] : 0;
+  let vals  = gnash ? nums.slice(1) : nums;
+  if (vals.length < 5) return null;
+  const [ac_ubc,ac_bc,nc_re,nc_hvdc,rc] = vals;
+  const rest = vals.slice(5);
+  const expected = ac_ubc+ac_bc+nc_re+nc_hvdc+rc;
+  let trx = 0;
+  if (rest.length === 1) {
+    if (Math.abs(rest[0]-expected)/Math.max(expected,1) > 0.10) trx = rest[0];
+  } else if (rest.length >= 2) {
+    const [ct,ctot] = [rest[0], rest[rest.length-1]];
+    if (ctot > 0 && Math.abs(ctot-(expected+ct))/ctot < 0.10) trx = ct;
+  }
+  return {name, region, gnash, ac_ubc,ac_bc,nc_re,nc_hvdc,rc, trx, bil:0};
+}
+
+function pdfCollectNums(tokens, start) {
+  const nums = []; let j = start; const n = tokens.length;
+  while (j < n) {
+    const t = tokens[j].trim();
+    if (/^\d{1,3}\s+[A-Za-z]/.test(t)) break;
+    if (/^\d{1,3}$/.test(t)) {
+      const peek = j+1 < n ? tokens[j+1].trim() : '';
+      if (/^[A-Za-z]/.test(peek) && !pdfIsRegion(peek)) break;
+      if (pdfIsRegion(peek)) break;
+    }
+    const v = pdfCleanNum(t);
+    if (v !== null) { nums.push(v); j++; continue; }
+    if (t && /^[A-Za-z]/.test(t) && !PDF_REGIONS.has(t)) break;
+    j++;
+  }
+  return [nums, j];
+}
+
+function pdfFindNamelessBlocks(rawLines) {
+  const blocks = []; let i = 0;
+  while (i < rawLines.length) {
+    const l = rawLines[i].trim();
+    if (/^\d{1,3}$/.test(l)) {
+      let j = i+1;
+      while (j < rawLines.length && !rawLines[j].trim()) j++;
+      if (j < rawLines.length && pdfIsRegion(rawLines[j])) {
+        const region = rawLines[j].trim(); let k = j+1;
+        const nums = [];
+        while (k < Math.min(j+50, rawLines.length)) {
+          const s = rawLines[k].trim();
+          if (pdfIsRegion(s)) break;
+          if (s && /^[A-Za-z]/.test(s) && pdfCleanNum(s) === null) break;
+          const v = pdfCleanNum(s);
+          if (v !== null) nums.push(v);
+          k++;
+        }
+        if (nums.length >= 6) { blocks.push([parseInt(l), region, nums]); i = k; continue; }
+      }
+    }
+    i++;
+  }
+  return blocks;
+}
+
+function pdfFindOrphanDataBlocks(rawLines) {
+  const blocks = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const l = rawLines[i].trim();
+    if (!PDF_REGIONS.has(l)) continue;
+    let prev = '';
+    for (let k = i-1; k >= Math.max(0,i-5); k--) {
+      if (rawLines[k].trim()) { prev = rawLines[k].trim(); break; }
+    }
+    const pv = pdfCleanNum(prev);
+    if (!pv || pv <= 1000) continue;
+    const region = l; let j = i+1; const nums = [];
+    while (j < Math.min(i+50, rawLines.length)) {
+      const s = rawLines[j].trim();
+      if (pdfIsRegion(s)) break;
+      if (s && /^[A-Za-z]/.test(s) && pdfCleanNum(s) === null) break;
+      const v = pdfCleanNum(s);
+      if (v !== null) nums.push(v);
+      j++;
+    }
+    const isBilPair = nums.length >= 2 && nums[0] === nums[1] && nums[0] > 0;
+    if (nums.length >= 6 || isBilPair) blocks.push([region, nums]);
+  }
+  return blocks;
+}
+
+function pdfFindOrphanNameList(rawLines) {
+  const tokens = pdfStripNoise(rawLines);
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i].trim();
+    if (/^\d{1,2}$/.test(t)) {
+      let j = i; const snos = [];
+      while (j < tokens.length && /^\d{1,2}$/.test(tokens[j].trim())) {
+        snos.push(parseInt(tokens[j])); j++;
+      }
+      if (snos.length < 3) { i++; continue; }
+      const names = [];
+      while (j < tokens.length) {
+        const s = tokens[j].trim();
+        if (!s) { j++; continue; }
+        if (pdfCleanNum(s) !== null || pdfIsRegion(s)) break;
+        if (/^\d{1,3}\s+[A-Za-z]/.test(s)) break;
+        names.push(s); j++;
+      }
+      if (names.length >= 3) return [names, snos[0]];
+    }
+    i++;
+  }
+  return [[], 0];
+}
+
+function pdfParseSection(rawLines, month, year) {
+  const tokens = pdfStripNoise(rawLines);
+  const n = tokens.length;
+  const results = [];
+  const seenNames = new Set();
+
+  function emit(dic) {
+    if (dic && !seenNames.has(dic.name)) {
+      dic.month = month; dic.year = year; dic.mi = pdfMonthIdx(year, month);
+      results.push(dic); seenNames.add(dic.name);
+    }
+  }
+
+  // Pass 1
+  let i = 0;
+  while (i < n) {
+    const tok = tokens[i];
+
+    // Layout A: "10 Railways-NR-ISTS-UP"
+    const mA = tok.match(/^(\d{1,3})\s+([A-Za-z\(].*)$/);
+    if (mA) {
+      let namePart = mA[2].trim(); let j = i+1;
+      while (j < n) {
+        const nxt = tokens[j].trim();
+        if (pdfIsRegion(nxt) || /^\d+[,\.]/.test(nxt)) break;
+        if (/^\d{1,3}\s+[A-Za-z]/.test(nxt) || /^\d{1,3}$/.test(nxt)) break;
+        namePart = (namePart+' '+nxt).trim(); j++;
+      }
+      // Look-back for split names (ArcelorMittal / Mahan)
+      if (i > 0) {
+        const prevTok = tokens[i-1].trim();
+        const nameIsContinuation = namePart.startsWith('(')
+          || namePart.toLowerCase().includes('(formerly')
+          || namePart.toLowerCase().startsWith('india ')
+          || namePart.toLowerCase().startsWith('steel');
+        const completeSuffixes = ['pvt. ltd.','ltd.','pvt ltd'];
+        const prevIsComplete = completeSuffixes.some(s => prevTok.toLowerCase().endsWith(s));
+        if (prevTok && /^[A-Za-z]/.test(prevTok) && !pdfIsRegion(prevTok)
+            && !/^\d/.test(prevTok) && pdfCleanNum(prevTok) === null
+            && (nameIsContinuation || !prevIsComplete)) {
+          namePart = prevTok + ' ' + namePart;
+        }
+      }
+      const name = namePart.replace(/\s+/g,' ').trim();
+      if (j < n && pdfIsRegion(tokens[j])) {
+        const region = tokens[j]; j++;
+        const [nums, j2] = pdfCollectNums(tokens, j);
+        emit(pdfExtractFields(name, region, nums)); j = j2;
+      }
+      i = j; continue;
+    }
+
+    // Layout B: standalone S.No
+    if (/^\d{1,3}$/.test(tok)) {
+      let j = i+1;
+      while (j < n && !tokens[j].trim()) j++;
+      if (j >= n) { i++; continue; }
+      const nxt = tokens[j].trim();
+
+      if (pdfIsRegion(nxt)) {
+        const region = nxt; j++;
+        const [nums, j2] = pdfCollectNums(tokens, j);
+        if (nums.length >= 6) {
+          results.push({_nameless:true, _sno:parseInt(tok), region, nums,
+                        month, year, mi:pdfMonthIdx(year,month)});
+        }
+        j = j2; i = j; continue;
+      }
+
+      if (/^[A-Za-z]/.test(nxt)) {
+        let namePart = nxt; j++;
+        while (j < n) {
+          const nn = tokens[j].trim();
+          if (pdfIsRegion(nn) || /^\d/.test(nn)) break;
+          namePart = (namePart+' '+nn).trim(); j++;
+        }
+        const name = namePart.replace(/\s+/g,' ').trim();
+        if (j < n && pdfIsRegion(tokens[j])) {
+          const region = tokens[j]; j++;
+          const [nums, j2] = pdfCollectNums(tokens, j);
+          emit(pdfExtractFields(name, region, nums)); j = j2;
+        }
+        i = j; continue;
+      }
+    }
+    i++;
+  }
+
+  // Pass 2: resolve nameless blocks + ER orphan data
+  const nameless = results.filter(r => r._nameless);
+  const realResults = results.filter(r => !r._nameless);
+  const seenReal = new Set(realResults.map(r => r.name));
+
+  const orphanData  = pdfFindOrphanDataBlocks(rawLines);
+  const [orphanNames, firstOrphanSno] = pdfFindOrphanNameList(rawLines);
+
+  const erNerOrphan = orphanData.filter(([r]) => r === 'ER' || r === 'NER');
+  if (nameless.length && orphanNames.length) {
+    nameless.forEach((nb, idx) => {
+      if (idx < orphanNames.length) {
+        const name = orphanNames[idx];
+        const dic = pdfExtractFields(name, nb.region, nb.nums);
+        if (dic && !seenReal.has(name)) {
+          dic.month=month; dic.year=year; dic.mi=pdfMonthIdx(year,month);
+          realResults.push(dic); seenReal.add(name);
+        }
+      }
+    });
+  }
+  if (erNerOrphan.length && orphanNames.length) {
+    const nNameless = nameless.length;
+    const remaining = orphanNames.slice(nNameless).filter(nm => !seenReal.has(nm));
+    erNerOrphan.forEach(([region, nums], idx) => {
+      if (idx < remaining.length) {
+        const dic = pdfExtractFields(remaining[idx], region, nums);
+        if (dic && !seenReal.has(remaining[idx])) {
+          dic.month=month; dic.year=year; dic.mi=pdfMonthIdx(year,month);
+          realResults.push(dic); seenReal.add(remaining[idx]);
+        }
+      }
+    });
+  }
+
+  // Pass 3: NR/WR bilateral orphan blocks matched with unresolved names
+  const nrWrBilBlocks = orphanData.filter(([r,nums]) =>
+    (r==='NR'||r==='WR') && nums.length>=2 && nums[0]===nums[1]);
+  if (nrWrBilBlocks.length) {
+    const unresolved = [];
+    for (let i2 = 0; i2 < n; i2++) {
+      const tok2 = tokens[i2];
+      // Layout A unresolved bilateral
+      const mA2 = tok2.match(/^(\d{1,3})\s+([A-Za-z\(].*)$/);
+      if (mA2) {
+        let candidate = mA2[2].trim(); let j2 = i2+1;
+        while (j2 < n) {
+          const nxt = tokens[j2].trim();
+          if (pdfIsRegion(nxt) || /^\d/.test(nxt)) break;
+          candidate=(candidate+' '+nxt).trim(); j2++;
+        }
+        candidate = candidate.replace(/\s+/g,' ').trim();
+        if (pdfIsBilateral(candidate) && !seenReal.has(candidate))
+          if (j2>=n || !pdfIsRegion(tokens[j2]))
+            unresolved.push([candidate, mA2[1]]);
+      }
+      // Layout B unresolved bilateral
+      if (/^\d{1,3}$/.test(tok2)) {
+        let j2=i2+1;
+        while(j2<n&&!tokens[j2].trim())j2++;
+        if(j2>=n||pdfIsRegion(tokens[j2])||!/^[A-Za-z]/.test(tokens[j2]))continue;
+        let candidate=tokens[j2].trim();j2++;
+        while(j2<n){const nn=tokens[j2].trim();if(pdfIsRegion(nn)||/^\d/.test(nn))break;candidate=(candidate+' '+nn).trim();j2++;}
+        candidate=candidate.replace(/\s+/g,' ').trim();
+        if(pdfIsBilateral(candidate)&&!seenReal.has(candidate))
+          if(j2>=n||!pdfIsRegion(tokens[j2]))
+            unresolved.push([candidate,tok2]);
+      }
+    }
+    nrWrBilBlocks.forEach(([region, nums], idx) => {
+      if (idx < unresolved.length) {
+        const [name] = unresolved[idx];
+        const bil = (nums.length>=2 && nums[0]===nums[1]) ? nums[0] : nums[0];
+        const dic = {name, region, gnash:0,
+                     ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil,
+                     month,year,mi:pdfMonthIdx(year,month)};
+        if (!seenReal.has(name)) { realResults.push(dic); seenReal.add(name); }
+      }
+    });
+  }
+
+  // Pass 4: IPCL TC fallback
+  const IPCL_TC = [[range(48,56),1933976],[range(56,60),3325915]];
+  function range(a,b){const r=[];for(let x=a;x<b;x++)r.push(x);return r;}
+  realResults.forEach(r => {
+    if (r.name && r.name.includes('India Power Corporation') && !r.trx) {
+      for (const [rng, tc] of IPCL_TC) {
+        if (rng.includes(r.mi)) { r.trx = tc; break; }
+      }
+    }
+  });
+
+  return realResults;
+}
+
+function pdfParseFull(allLines) {
+  const sections = pdfSplitSections(allLines);
+  const all = [];
+  for (const [mon, yr, sec] of sections) {
+    all.push(...pdfParseSection(sec, mon, yr));
+  }
+  return all;
+}
+
+// ── PDF upload UI handlers ────────────────────────────────────────────────────
+let _pdfParsedRows = [];
+
+async function handlePdfUpload(file) {
+  if (!file || !file.name.endsWith('.pdf')) {
+    document.getElementById('pdf-status').textContent = '⚠ Please select a PDF file.';
+    return;
+  }
+  const statusEl = document.getElementById('pdf-status');
+  statusEl.textContent = '⏳ Loading PDF…';
+  document.getElementById('pdf-preview').style.display = 'none';
+
+  try {
+    // Load pdf.js from CDN
+    if (typeof pdfjsLib === 'undefined') {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    statusEl.textContent = '⏳ Extracting text from PDF…';
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+
+    let fullText = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      // Sort items by y then x to approximate reading order
+      const items = content.items.slice().sort((a,b) =>
+        Math.round(b.transform[5]/4)*4 - Math.round(a.transform[5]/4)*4
+        || a.transform[4] - b.transform[4]);
+      fullText += items.map(i => i.str).join('\n') + '\n';
+    }
+
+    statusEl.textContent = '⏳ Parsing DIC data…';
+    const lines = fullText.split('\n');
+    const parsed = pdfParseFull(lines);
+
+    if (!parsed.length) {
+      statusEl.textContent = '⚠ No DIC data found. Is this a POSOCO billing PDF?';
+      return;
+    }
+
+    // Convert to the same row format as Excel upload
+    _pdfParsedRows = parsed.map(r => ({
+      dicName: r.name,
+      region:  r.region,
+      gnash:   r.gnash || 0,
+      year:    r.year,
+      month:   r.month,
+      ac_ubc:  r.ac_ubc,
+      ac_bc:   r.ac_bc,
+      nc_re:   r.nc_re,
+      nc_hvdc: r.nc_hvdc,
+      rc:      r.rc,
+      tc:      r.trx,   // mergeRows expects 'tc', maps to 'trx' internally
+      bil:     r.bil,
+    }));
+
+    // Count by month
+    const byMonth = {};
+    _pdfParsedRows.forEach(r => {
+      const k = buildMonthLabel(r.year, r.month);
+      byMonth[k] = (byMonth[k]||0) + 1;
+    });
+    const monthSummary = Object.entries(byMonth)
+      .map(([m,c]) => `${m}: ${c} DICs`).join(' · ');
+
+    statusEl.textContent = `✅ Parsed ${parsed.length} records across ${Object.keys(byMonth).length} month(s)`;
+
+    // Show preview
+    const months = Object.keys(byMonth);
+    document.getElementById('pdf-preview-summary').textContent =
+      `Months found: ${monthSummary}`;
+
+    // Build a condensed preview table (first 20 rows)
+    const previewRows = _pdfParsedRows.slice(0, 20);
+    document.getElementById('pdf-preview-table').innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:'DM Mono',monospace;">
+        <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border);">
+          <th style="padding:4px 8px;text-align:left;">DIC Name</th>
+          <th style="padding:4px 8px;">Region</th>
+          <th style="padding:4px 8px;">Month</th>
+          <th style="padding:4px 8px;">AC-UBC</th>
+          <th style="padding:4px 8px;">Bilateral</th>
+        </tr></thead>
+        <tbody>
+          ${previewRows.map(r => `<tr style="border-bottom:1px solid var(--border)22;">
+            <td style="padding:4px 8px;color:var(--accent);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.dicName}</td>
+            <td style="padding:4px 8px;text-align:center;">${r.region}</td>
+            <td style="padding:4px 8px;text-align:center;">${buildMonthLabel(r.year,r.month)}</td>
+            <td style="padding:4px 8px;text-align:right;">${r.ac_ubc ? '₹'+(r.ac_ubc/1e7).toFixed(1)+'Cr' : '—'}</td>
+            <td style="padding:4px 8px;text-align:right;">${r.bil ? '₹'+(r.bil/1e7).toFixed(2)+'Cr' : '—'}</td>
+          </tr>`).join('')}
+          ${_pdfParsedRows.length > 20 ? `<tr><td colspan="5" style="padding:4px 8px;color:var(--muted);text-align:center;">… and ${_pdfParsedRows.length-20} more rows</td></tr>` : ''}
+        </tbody>
+      </table>`;
+    document.getElementById('pdf-preview').style.display = '';
+
+  } catch(err) {
+    statusEl.textContent = '❌ Error: ' + err.message;
+    console.error('PDF parse error:', err);
+  }
+}
+
+function confirmPdfUpload() {
+  if (!_pdfParsedRows.length) return;
+  document.getElementById('pdf-preview').style.display = 'none';
+  document.getElementById('pdf-status').textContent = '⏳ Merging data…';
+
+  // Reuse the same conflict detection pipeline as Excel upload
+  const { conflicts, clean } = findConflicts(_pdfParsedRows);
+  const onComplete = rows => {
+    mergeRows(rows);
+    document.getElementById('pdf-status').textContent =
+      `✅ Merged ${rows.length} records. ${conflicts.length ? conflicts.length+' conflicts resolved.' : ''}`;
+    _pdfParsedRows = [];
+  };
+  if (conflicts.length) {
+    document.getElementById('conflict-sub').textContent =
+      `${conflicts.length} row(s) already have data. Choose which to overwrite:`;
+    startConflictResolution(conflicts, clean, onComplete);
+  } else {
+    onComplete(clean);
+  }
+}
+
+function cancelPdfUpload() {
+  _pdfParsedRows = [];
+  document.getElementById('pdf-preview').style.display = 'none';
+  document.getElementById('pdf-status').textContent = '';
+  document.getElementById('pdf-file-input').value = '';
+}
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── FEATURE: DARK / LIGHT MODE ───────────────────────────────────────────────
+// ─── FEATURE: PERSISTENCE (localStorage) ─────────────────────────────────────
+// Persists all uploaded/manually-entered data as a delta on top of the
+// hardcoded baseline. Saved after every merge; restored immediately on load.
+const PERSIST_KEY = 'ists_data_v1';
+const BASE_MONTH_COUNT = 66; // Jan\'21 → Jun\'26 hardcoded in RAW
+
+function persistData() {
+  try {
+    const extraLabels = ALL_MONTH_LABELS.slice(BASE_MONTH_COUNT);
+    const dicDeltas = RAW.map(d => {
+      const months = {};
+      for (let i = 0; i < ALL_MONTH_LABELS.length; i++) {
+        const m = d['m' + i];
+        if (!m) continue;
+        const hasValue = m.ac_ubc || m.ac_bc || m.nc_re || m.nc_hvdc || m.rc || m.trx || m.bil;
+        if (hasValue || i >= BASE_MONTH_COUNT) months[i] = m;
+      }
+      return { name: d.name, region: d.region, gnash: d.gnash, months };
+    });
+    localStorage.setItem(PERSIST_KEY, JSON.stringify({ extraLabels, dicDeltas }));
+  } catch(e) { console.warn('ISTS persist save failed:', e); }
+}
+
+function restoreData() {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const { extraLabels, dicDeltas } = JSON.parse(raw);
+    if (extraLabels && extraLabels.length) {
+      extraLabels.forEach(label => {
+        if (!ALL_MONTH_LABELS.includes(label)) {
+          ALL_MONTH_LABELS.push(label);
+          const ni = ALL_MONTH_LABELS.length - 1;
+          RAW.forEach(d => { d['m'+ni] = {ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,tc:0,bil:0}; });
+        }
+      });
+    }
+    if (dicDeltas && dicDeltas.length) {
+      dicDeltas.forEach(delta => {
+        let dic = RAW.find(d => d.name === delta.name);
+        if (!dic) {
+          dic = { name: delta.name, region: delta.region, gnash: delta.gnash };
+          for (let i = 0; i < ALL_MONTH_LABELS.length; i++)
+            dic['m'+i] = {ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,tc:0,bil:0};
+          RAW.push(dic);
+        } else {
+          if (delta.gnash) dic.gnash = delta.gnash;
+        }
+        Object.entries(delta.months).forEach(([idx, m]) => { dic['m'+idx] = m; });
+      });
+    }
+  } catch(e) { console.warn('ISTS persist restore failed:', e); }
+}
+
+// ── Bootstrap: load data from API, then initialise dashboard ────────────────
+(async function() {
+  const ok = await loadDataFromAPI();
+  if (!ok) return;
+
+  // Recompute derived arrays now that ALL_MONTH_LABELS is populated
+  recomputeMeta();
+  rebuildCompToggles();
+
+  // Restore any locally-saved data
+  restoreData();
+
+  // Set N globally so applyPresetLast and markPresets can use it
+  N = ALL_MONTH_LABELS.length - 1;
+  slStart = 0;
+  slEnd   = N;
+
+  // Wire up filter listeners now that data is loaded
+  populateDicDropdown();
+  ['sel-region','sel-component'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', renderAll);
+  });
+
+  buildCalGrid();
+  updateInfoBar();
+  markPresets();
+  updateFill();
+  renderAll();
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPONENT TOGGLES (Part C) + ADD COLUMN (Part A)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Toggle bar ────────────────────────────────────────────────────────────────
+function rebuildCompToggles() {
+  const wrap = document.getElementById('comp-toggles');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  COMP_KEYS.forEach(k => {
+    const active = ACTIVE_COMPS.has(k);
+    const color  = COMP_COLORS[k] || '#4f8ef7';
+    const btn    = document.createElement('button');
+    btn.id = 'ctog-' + k;
+    btn.textContent = COMP_LABELS[k] || k;
+    btn.style.cssText = `
+      font-size:10px;font-family:'DM Mono',monospace;font-weight:600;
+      padding:3px 10px;border-radius:20px;cursor:pointer;transition:all .15s;
+      border:1px solid ${color}${active ? '' : '44'};
+      background:${active ? color + '22' : 'transparent'};
+      color:${active ? color : 'var(--muted)'};
+    `;
+    btn.onclick = () => toggleComp(k, btn, color);
+    wrap.appendChild(btn);
+  });
+}
+
+function toggleComp(key, btn, color) {
+  if (ACTIVE_COMPS.has(key)) {
+    // Don't allow deselecting all
+    if (ACTIVE_COMPS.size <= 1) return;
+    ACTIVE_COMPS.delete(key);
+    btn.style.border = `1px solid ${color}44`;
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--muted)';
+  } else {
+    ACTIVE_COMPS.add(key);
+    btn.style.border = `1px solid ${color}`;
+    btn.style.background = color + '22';
+    btn.style.color = color;
+  }
+  renderAll();
+}
+
+function setAllComps(enable) {
+  if (enable) {
+    COMP_KEYS.forEach(k => ACTIVE_COMPS.add(k));
+  } else {
+    // Keep at least one
+    const first = COMP_KEYS[0];
+    ACTIVE_COMPS.clear();
+    if (first) ACTIVE_COMPS.add(first);
+  }
+  rebuildCompToggles();
+  renderAll();
+}
+
+// ── Add Column (Part A) ───────────────────────────────────────────────────────
+function showAddColPanel() {
+  document.getElementById('new-col-id').value    = '';
+  document.getElementById('new-col-label').value = '';
+  document.getElementById('add-col-status').textContent = '';
+  document.getElementById('add-col-modal').style.display = 'flex';
+}
+
+async function doAddColumn() {
+  const col   = document.getElementById('new-col-id').value.trim();
+  const label = document.getElementById('new-col-label').value.trim() ||
+                col.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  const status = document.getElementById('add-col-status');
+
+  if (!col || col.length < 2) {
+    status.style.color = '#f7614f';
+    status.textContent = 'Column ID must be at least 2 characters.';
+    return;
+  }
+  if (COMP_KEYS.includes(col)) {
+    status.style.color = '#f7614f';
+    status.textContent = 'That column already exists.';
+    return;
+  }
+
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Adding column…';
+
+  try {
+    const resp = await fetch('/api/add_column', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({column: col, label})
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      status.style.color = '#f7614f';
+      status.textContent = 'Error: ' + (data.error || resp.statusText);
+      return;
+    }
+
+    // Register in frontend
+    COMP_KEYS.push(col);
+    COMP_LABELS[col] = label;
+    COMP_COLORS[col] = CUSTOM_COL_COLORS[COMP_KEYS.length % CUSTOM_COL_COLORS.length];
+    ACTIVE_COMPS.add(col);
+
+    // Add m0=0, m1=0 ... to every DIC in RAW
+    RAW.forEach(d => {
+      for (let i = 0; i < ALL_MONTH_LABELS.length; i++) {
+        if (d['m'+i]) d['m'+i][col] = 0;
+      }
+    });
+
+    rebuildCompToggles();
+    status.style.color = '#2ecf8e';
+    status.textContent = '✅ Column "' + label + '" added. Use Enter Values to input data.';
+
+    // After 1.5s close and open Enter Values
+    setTimeout(() => {
+      document.getElementById('add-col-modal').style.display = 'none';
+      showSetValueModal(col);
+    }, 1500);
+
+  } catch(e) {
+    status.style.color = '#f7614f';
+    status.textContent = 'Network error: ' + e.message;
+  }
+}
+
+// ── Enter Values modal ────────────────────────────────────────────────────────
+let _svCurrentCol = null;
+let _svCurrentDic = null;
+
+function showSetValueModal(preselectCol) {
+  const colSel = document.getElementById('sv-col');
+  const dicSel = document.getElementById('sv-dic');
+
+  // Populate column selector (custom cols only - built-ins come from Excel upload)
+  const customCols = COMP_KEYS.filter(k =>
+    !['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'].includes(k));
+  colSel.innerHTML = customCols.map(k =>
+    `<option value="${k}">${COMP_LABELS[k] || k}</option>`
+  ).join('');
+  if (preselectCol && customCols.includes(preselectCol)) colSel.value = preselectCol;
+
+  // Populate DIC selector
+  dicSel.innerHTML = RAW.map(d =>
+    `<option value="${d.name}">${d.name} (${d.region})</option>`
+  ).join('');
+
+  colSel.onchange = dicSel.onchange = buildSetValRows;
+  buildSetValRows();
+
+  document.getElementById('set-val-status').textContent = '';
+  document.getElementById('set-val-modal').style.display = 'flex';
+}
+
+function buildSetValRows() {
+  const col    = document.getElementById('sv-col').value;
+  const dicName = document.getElementById('sv-dic').value;
+  const dic    = RAW.find(d => d.name === dicName);
+  const rows   = document.getElementById('set-val-rows');
+
+  _svCurrentCol = col;
+  _svCurrentDic = dicName;
+  document.getElementById('set-val-title').textContent =
+    `Enter values — ${COMP_LABELS[col]||col} for ${dicName}`;
+
+  if (!dic) { rows.innerHTML = ''; return; }
+
+  rows.innerHTML = ALL_MONTH_LABELS.map((lbl, i) => {
+    const cur = (dic['m'+i] && dic['m'+i][col]) || 0;
+    return `<div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);width:50px;flex-shrink:0;">${lbl}</span>
+      <input type="number" id="sv-${i}" value="${cur || ''}" placeholder="0"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);
+               border-radius:6px;padding:5px 8px;color:var(--text);
+               font-family:'DM Mono',monospace;font-size:11px;outline:none;">
+      <span style="font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;width:40px;">
+        ${cur ? '₹'+(cur/1e7).toFixed(1)+'Cr' : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+async function doSetValues() {
+  const col     = _svCurrentCol;
+  const dicName = _svCurrentDic;
+  const status  = document.getElementById('set-val-status');
+  const dic     = RAW.find(d => d.name === dicName);
+  if (!dic || !col) return;
+
+  // Collect all non-zero values to save
+  const updates = [];
+  ALL_MONTH_LABELS.forEach((lbl, i) => {
+    const inp = document.getElementById('sv-' + i);
+    if (!inp) return;
+    const val = parseInt(inp.value) || 0;
+    const yr  = parseInt('20' + lbl.slice(-2));
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun',
+                 'Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(lbl.slice(0,3)) + 1;
+    updates.push({mi: i, year: yr, month: mon, value: val});
+  });
+
+  status.textContent = 'Saving…';
+
+  let saved = 0, errors = 0;
+  for (const u of updates) {
+    try {
+      const resp = await fetch('/api/set_value', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({dic_name: dicName, year: u.year, month: u.month,
+                              column: col, value: u.value})
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        // Update in-memory RAW
+        if (dic['m'+u.mi]) dic['m'+u.mi][col] = u.value;
+        saved++;
+      } else {
+        errors++;
+      }
+    } catch(e) {
+      errors++;
+    }
+  }
+
+  status.style.color = errors ? '#f7614f' : '#2ecf8e';
+  status.textContent = `✅ Saved ${saved} values${errors ? ' (' + errors + ' errors)' : ''}.`;
+  renderAll();
+}
+
+// rebuildCompToggles is called from bootstrap after recomputeMeta()
+// No wrapper needed — getRangeData already uses ACTIVE_COMPS via activeKeys()
+
+
+// ── Data Coverage Heatmap ─────────────────────────────────────────────────────
+function renderHeatmap() {
+  const container = document.getElementById('heatmap-container');
+  if (!container) return;
+  if (!RAW || !RAW.length) {
+    container.innerHTML = '<div style="color:var(--muted);font-family:DM Mono,monospace;font-size:12px;padding:20px;">Loading…</div>';
+    return;
+  }
+
+  const regionFilter = (document.getElementById('hm-region') || {}).value || 'all';
+  const sort         = (document.getElementById('hm-sort')   || {}).value || 'region';
+  const N            = ALL_MONTH_LABELS.length;
+
+  // Status per DIC per slot
+  const STATUS_COLOR  = { complete: '#2ecf8e', partial: '#f7c24f', missing: '#f7614f44' };
+  const STATUS_BORDER = { complete: '#2ecf8e44', partial: '#f7c24f44', missing: '#f7614f33' };
+
+  function slotStatus(slot) {
+    if (!slot) return 'missing';
+    const ac = (slot.ac_ubc||0) + (slot.ac_bc||0) + (slot.nc_re||0) +
+               (slot.nc_hvdc||0) + (slot.rc||0) + (slot.trx||0);
+    const bil = slot.bil || 0;
+    if (ac > 0)          return 'complete';
+    if (bil > 0)         return 'partial';
+    return 'missing';
+  }
+
+  // Filter
+  let dics = regionFilter === 'all' ? RAW : RAW.filter(d => d.region === regionFilter);
+
+  // Sort
+  if (sort === 'name') {
+    dics = [...dics].sort((a,b) => a.name.localeCompare(b.name));
+  } else if (sort === 'region') {
+    const ORD = {NR:0,WR:1,SR:2,ER:3,NER:4};
+    dics = [...dics].sort((a,b) => (ORD[a.region]||9) - (ORD[b.region]||9) || a.name.localeCompare(b.name));
+  } else if (sort === 'completeness') {
+    dics = [...dics].sort((a,b) => {
+      const scoreA = [...Array(N)].filter((_,i) => slotStatus(a['m'+i]) === 'complete').length;
+      const scoreB = [...Array(N)].filter((_,i) => slotStatus(b['m'+i]) === 'complete').length;
+      return scoreB - scoreA;
+    });
+  }
+
+  const REGION_C = {NR:'#4f8ef7',WR:'#2ecf8e',SR:'#f7614f',ER:'#f7c24f',NER:'#a78bf7'};
+  const CELL_W = 14;
+
+  // Month header
+  let html = '<div style="display:flex;align-items:flex-end;padding-left:172px;gap:2px;margin-bottom:3px;">';
+  ALL_MONTH_LABELS.forEach((lbl, i) => {
+    const inRange = i >= slStart && i <= slEnd;
+    html += `<div style="width:${CELL_W}px;writing-mode:vertical-rl;transform:rotate(180deg);
+      font-size:8px;color:${inRange ? 'var(--text)' : 'var(--muted)'};
+      font-family:'DM Mono',monospace;height:38px;display:flex;align-items:center;
+      justify-content:center;">${lbl}</div>`;
+  });
+  html += '</div>';
+
+  // DIC rows
+  dics.forEach(dic => {
+    const nameColor = REGION_C[dic.region] || 'var(--muted)';
+    const shortName = dic.name.length > 26 ? dic.name.slice(0,25) + '…' : dic.name;
+    html += `<div style="display:flex;align-items:center;gap:2px;margin-bottom:2px;">
+      <div title="${dic.name}" style="width:168px;min-width:168px;text-align:right;
+        padding-right:6px;font-size:9px;font-family:'DM Mono',monospace;
+        color:${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        ${shortName}
+      </div>`;
+
+    ALL_MONTH_LABELS.forEach((lbl, i) => {
+      const slot   = dic['m' + i];
+      const status = slotStatus(slot);
+      const total  = slot ? (slot.ac_ubc||0)+(slot.ac_bc||0)+(slot.nc_re||0)+
+                             (slot.nc_hvdc||0)+(slot.rc||0)+(slot.trx||0)+(slot.bil||0) : 0;
+      const tip = `${dic.name} · ${lbl} · ${status}${total ? ' · ₹'+(total/1e7).toFixed(1)+'Cr' : ''}`;
+      const inRange = i >= slStart && i <= slEnd;
+      const opacity = inRange ? '1' : '0.35';
+
+      html += `<div title="${tip}"
+        style="width:${CELL_W}px;height:15px;border-radius:2px;flex-shrink:0;
+               background:${STATUS_COLOR[status]};border:1px solid ${STATUS_BORDER[status]};
+               opacity:${opacity};cursor:default;"></div>`;
+    });
+
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+
+  // Update summary stats
+  const summaryEl = document.getElementById('hm-summary');
+  if (summaryEl) {
+    let complete = 0, partial = 0, missing = 0;
+    dics.forEach(dic => {
+      ALL_MONTH_LABELS.forEach((_, i) => {
+        const s = slotStatus(dic['m'+i]);
+        if (s === 'complete') complete++;
+        else if (s === 'partial') partial++;
+        else missing++;
+      });
+    });
+    const tot = complete + partial + missing;
+    summaryEl.innerHTML =
+      `<span style="color:#2ecf8e">✓ ${complete} complete</span>&nbsp;&nbsp;` +
+      `<span style="color:#f7c24f">◑ ${partial} partial</span>&nbsp;&nbsp;` +
+      `<span style="color:#f7614f88">✗ ${missing} missing</span>&nbsp;&nbsp;` +
+      `<span style="color:var(--muted)">${tot} total cells</span>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MISSING FUNCTIONS — restored from dashboard v13
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── 1. Theme toggle ───────────────────────────────────────────────────────────
+function toggleTheme(){
+  const isLight = document.body.classList.toggle('light');
+  const btn = document.getElementById('theme-btn');
+  if(btn) btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  try { localStorage.setItem('ists_theme', isLight ? 'light' : 'dark'); } catch(e){}
+}
+// Apply saved theme on load
+(function(){
+  try {
+    if(localStorage.getItem('ists_theme')==='light') document.body.classList.add('light');
+  } catch(e){}
+})();
+
+// ── 2. Month index utility ────────────────────────────────────────────────────
+function monthIdx(yr, mon){
+  // Returns position in ALL_MONTH_LABELS for a given year/month
+  return ALL_MONTH_LABELS.findIndex(l => {
+    const m = ['Jan','Feb','Mar','Apr','May','Jun',
+               'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const shortYr = String(yr).slice(-2);
+    return l === m[mon-1]+"'"+shortYr;
+  });
+}
+
+// ── 3. Search box ─────────────────────────────────────────────────────────────
+let _searchResults = [];
+let _searchIdx = -1;
+
+function onSearch(val){
+  const drop = document.getElementById('search-drop');
+  if(!drop) return;
+  val = val.trim().toLowerCase();
+  if(!val){ drop.style.display='none'; _searchResults=[]; return; }
+  _searchResults = RAW.filter(d => d.name.toLowerCase().includes(val)).slice(0,12);
+  if(!_searchResults.length){ drop.style.display='none'; return; }
+  drop.innerHTML = _searchResults.map((d,i)=>
+    `<div class="search-item" data-i="${i}" onmousedown="selectSearchResult(${i})" style="padding:7px 12px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace;display:flex;justify-content:space-between;align-items:center;">
+      <span>${d.name}</span>
+      <span style="color:var(--muted);font-size:10px;">${d.region}</span>
+    </div>`
+  ).join('');
+  drop.style.display='block';
+  _searchIdx=-1;
+}
+
+function searchKeyNav(e){
+  const drop = document.getElementById('search-drop');
+  if(!drop || drop.style.display==='none') return;
+  if(e.key==='ArrowDown'){ e.preventDefault(); _searchIdx=Math.min(_searchIdx+1,_searchResults.length-1); highlightSearch(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); _searchIdx=Math.max(_searchIdx-1,0); highlightSearch(); }
+  else if(e.key==='Enter'&&_searchIdx>=0){ e.preventDefault(); selectSearchResult(_searchIdx); }
+  else if(e.key==='Escape'){ drop.style.display='none'; }
+}
+
+function highlightSearch(){
+  document.querySelectorAll('.search-item').forEach((el,i)=>{
+    el.style.background = i===_searchIdx ? 'var(--surface2)' : '';
+  });
+}
+
+function selectSearchResult(i){
+  const d = _searchResults[i];
+  if(!d) return;
+  const drop = document.getElementById('search-drop');
+  const inp  = document.getElementById('search-input');
+  if(drop) drop.style.display='none';
+  if(inp)  inp.value='';
+  // Switch to DIC tab and select this DIC
+  const dicSel = document.getElementById('dic-select');
+  if(dicSel){
+    dicSel.value = d.name;
+    switchTab('dic');
+    renderDic();
+  }
+}
+
+// Hide search dropdown when clicking outside
+document.addEventListener('click', e => {
+  const drop = document.getElementById('search-drop');
+  const inp  = document.getElementById('search-input');
+  if(drop && inp && !inp.contains(e.target) && !drop.contains(e.target)){
+    drop.style.display='none';
+  }
+});
+
+// ── 4. Audit trail ────────────────────────────────────────────────────────────
+let AUDIT_LOG = [];
+try {
+  const saved = localStorage.getItem('ists_audit');
+  if(saved) AUDIT_LOG = JSON.parse(saved);
+} catch(e){ AUDIT_LOG = []; }
+
+function addAuditEntry(action, detail){
+  const entry = {
+    ts:     new Date().toISOString(),
+    action: action,
+    detail: detail,
+  };
+  AUDIT_LOG.unshift(entry);
+  if(AUDIT_LOG.length > 200) AUDIT_LOG.length = 200;
+  try { localStorage.setItem('ists_audit', JSON.stringify(AUDIT_LOG)); } catch(e){}
+  renderAuditLog();
+}
+
+function renderAuditLog(){
+  const tbody = document.getElementById('audit-tbody');
+  const count = document.getElementById('audit-count');
+  if(!tbody) return;
+  const filter = (document.getElementById('audit-filter')||{}).value||'all';
+  const filtered = filter==='all' ? AUDIT_LOG : AUDIT_LOG.filter(e=>e.action===filter);
+  if(count) count.textContent = `(${filtered.length})`;
+  tbody.innerHTML = filtered.map(e=>`
+    <tr style="border-bottom:1px solid var(--border)22;">
+      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);white-space:nowrap;">${e.ts.replace('T',' ').slice(0,19)}</td>
+      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;">
+        <span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;
+          background:${e.action==='add'?'#2ecf8e22':e.action==='remove'?'#f7614f22':'#4f8ef722'};
+          color:${e.action==='add'?'#2ecf8e':e.action==='remove'?'#f7614f':'#4f8ef7'};">
+          ${e.action.toUpperCase()}
+        </span>
+      </td>
+      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text);">${e.detail}</td>
+    </tr>`).join('');
+}
+
+function setAuditFilter(val){
+  const sel = document.getElementById('audit-filter');
+  if(sel) sel.value = val;
+  renderAuditLog();
+}
+
+function clearAuditLog(){
+  if(!confirm('Clear the entire audit log?')) return;
+  AUDIT_LOG = [];
+  try { localStorage.removeItem('ists_audit'); } catch(e){}
+  renderAuditLog();
+}
+
+function downloadAuditCSV(){
+  if(!AUDIT_LOG.length){ alert('Audit log is empty.'); return; }
+  const header = 'Timestamp,Action,Detail\n';
+  const rows   = AUDIT_LOG.map(e =>
+    `"${e.ts}","${e.action}","${(e.detail||'').replace(/"/g,'""')}"`
+  ).join('\n');
+  const blob = new Blob([header+rows], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ists_audit_log.csv';
+  a.click();
+}
+
+// ── 5. Upload conflict resolution ─────────────────────────────────────────────
+let _conflictQueue   = [];
+let _conflictClean   = [];
+let _conflictCallback = null;
+
+function findConflicts(rows){
+  const conflicts = [];
+  const clean     = [];
+  rows.forEach(row => {
+    const dicName = row.dicName || row.name;
+    const mi = ALL_MONTH_LABELS.findIndex(l => {
+      const m = ['Jan','Feb','Mar','Apr','May','Jun',
+                 'Jul','Aug','Sep','Oct','Nov','Dec'];
+      return l === m[(row.month||1)-1]+"'"+(String(row.year||2025).slice(-2));
+    });
+    const existing = mi >= 0 && RAW.find(d => d.name === dicName) && 
+                     RAW.find(d => d.name === dicName)['m'+mi] &&
+                     Object.values(RAW.find(d => d.name === dicName)['m'+mi]).some(v=>v>0);
+    if(existing) conflicts.push({...row, _mi: mi});
+    else         clean.push({...row, _mi: mi});
+  });
+  return {conflicts, clean};
+}
+
+function startConflictResolution(conflicts, clean, onComplete){
+  _conflictQueue    = conflicts;
+  _conflictClean    = clean;
+  _conflictCallback = onComplete;
+
+  const modal = document.getElementById('conflict-modal');
+  const list  = document.getElementById('conflict-list');
+  const sub   = document.getElementById('conflict-sub');
+  if(!modal) { onComplete([...clean, ...conflicts]); return; }
+
+  if(sub) sub.textContent = `${conflicts.length} month(s) already have data. Select which to overwrite:`;
+
+  if(list){
+    list.innerHTML = conflicts.map((r,i)=>{
+      const label = ALL_MONTH_LABELS[r._mi] || `${r.year}/${r.month}`;
+      return `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;">
+        <input type="checkbox" class="conflict-cb" data-i="${i}" checked
+          style="accent-color:var(--accent);">
+        <span>${r.dicName||r.name} — ${label}</span>
+      </label>`;
+    }).join('');
+  }
+  modal.style.display='flex';
+}
+
+function conflictSelectAll(val){
+  document.querySelectorAll('.conflict-cb').forEach(cb => cb.checked = val);
+}
+
+function resolveConflictBulk(){
+  const modal = document.getElementById('conflict-modal');
+  const toOverwrite = [];
+  document.querySelectorAll('.conflict-cb').forEach((cb,i)=>{
+    if(cb.checked) toOverwrite.push(_conflictQueue[i]);
+  });
+  if(modal) modal.style.display='none';
+  const allRows = [..._conflictClean, ...toOverwrite];
+  if(_conflictCallback) _conflictCallback(allRows);
+}
+
+function mergeRows(rows){
+  if(!rows||!rows.length) return;
+  let added=0, updated=0;
+  rows.forEach(row => {
+    const dicName = row.dicName || row.name;
+    const mi      = row._mi >= 0 ? row._mi : monthIdx(row.year, row.month);
+    if(mi < 0) return;
+    let dic = RAW.find(d => d.name === dicName);
+    if(!dic){
+      dic = { name:dicName, region:row.region||'NR', gnash:row.gnash||0 };
+      for(let i=0;i<ALL_MONTH_LABELS.length;i++) dic['m'+i]={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
+      RAW.push(dic);
+      added++;
+    } else { updated++; }
+    dic['m'+mi] = {
+      ac_ubc:  row.ac_ubc  || 0,
+      ac_bc:   row.ac_bc   || 0,
+      nc_re:   row.nc_re   || 0,
+      nc_hvdc: row.nc_hvdc || 0,
+      rc:      row.rc      || 0,
+      trx:     row.tc      || row.trx || 0,
+      bil:     row.bil     || 0,
+    };
+  });
+  addAuditEntry('add', `Merged ${rows.length} rows (${added} new DICs, ${updated} updated)`);
+  renderAll();
+}
+
+// ── 6. PDF export ─────────────────────────────────────────────────────────────
+function exportPDF(){
+  const modal = document.getElementById('pdf-export-modal');
+  if(modal) modal.style.display='flex';
+}
+
+function doPDFExport(){
+  const modal = document.getElementById('pdf-export-modal');
+  if(modal) modal.style.display='none';
+  window.print();
+}
+
+
+</script>
+</body>
+</html>
