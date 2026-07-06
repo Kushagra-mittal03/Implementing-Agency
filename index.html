@@ -391,6 +391,20 @@ body.light #drop-zone{background:#eef1f7;}
       <svg id="theme-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:13px;height:13px;"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M11.4 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4"/></svg>
       Light
     </button>
+    <!-- Utility tabs — infrequently used, tucked into header -->
+    <div style="display:flex;gap:2px;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface2);">
+      <button class="sec-tab" onclick="switchTab('completeness')" id="sec-tab-completeness"
+        title="Data Coverage"
+        style="font-size:9px;font-family:'DM Mono',monospace;font-weight:600;padding:4px 9px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.3px;">
+        ▦ Coverage
+      </button>
+      <div style="width:1px;background:var(--border);margin:4px 0;"></div>
+      <button class="sec-tab" onclick="switchTab('audit')" id="sec-tab-audit"
+        title="Audit Trail"
+        style="font-size:9px;font-family:'DM Mono',monospace;font-weight:600;padding:4px 9px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.3px;">
+        ☰ Audit
+      </button>
+    </div>
     <div class="badge">CERC / Power Grid</div>
   </div>
 </div>
@@ -442,7 +456,7 @@ body.light #drop-zone{background:#eef1f7;}
 <!-- Range Slider -->
 <div class="range-wrap">
   <div class="range-header">
-    <span class="range-label">Date Range</span>
+    <span class="range-label">Billing Period</span>
     <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">Click start month, then end month</span>
   </div>
   <!-- Preset quick-select -->
@@ -559,14 +573,16 @@ body.light #drop-zone{background:#eef1f7;}
   </div>
 </div>
 
-<div class="tabs">
+<!-- Primary tab bar -->
+<div class="tabs" id="primary-tabs">
   <button class="tab active" onclick="switchTab('overview')">Overview</button>
   <button class="tab" onclick="switchTab('dic')">DIC Breakdown</button>
-  <button class="tab" onclick="switchTab('trends')">Monthly Trends</button>
-  <button class="tab" onclick="switchTab('completeness')">Data Coverage</button>
-  <button class="tab" onclick="switchTab('audit')">Audit Trail</button>
+  <button class="tab" onclick="switchTab('bilateral')">Bilateral Charges</button>
+  <button class="tab" onclick="switchTab('monthtable')">Monthly Table</button>
   <button class="tab" onclick="switchTab('upload')" style="color:#f7c24f;border-bottom-color:transparent;" id="tab-upload-btn">+ Add Data</button>
 </div>
+
+
 
 <!-- Overview -->
 <div id="tab-overview" class="tc active">
@@ -597,6 +613,38 @@ body.light #drop-zone{background:#eef1f7;}
     <div class="ct" id="top-title">Top DICs by Charge</div>
     <div style="position:relative;" id="top-wrap"><canvas id="chartTop"></canvas></div>
   </div>
+
+  <!-- ── Monthly Trends (moved from separate tab) ─────────────────── -->
+  <div style="margin-top:4px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div class="ct" style="margin:0;">Monthly Trends</div>
+      <div style="display:flex;gap:6px;">
+        <button class="dl-btn csv" onclick="downloadTrendsCSV()" style="font-size:10px;padding:4px 9px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
+        </button>
+        <button class="dl-btn xlsx" onclick="downloadTrendsXLSX()" style="font-size:10px;padding:4px 9px;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
+        </button>
+      </div>
+    </div>
+
+  <div class="card" style="margin-bottom:12px;">
+    <div class="ct">Total Charges by Region — Monthly</div>
+    <div class="leg" id="leg-trend"></div>
+    <div style="position:relative;height:270px;"><canvas id="chartTrend"></canvas></div>
+  </div>
+  <div class="chart-row">
+    <div class="card">
+      <div class="ct">Region Share — Stacked</div>
+      <div style="position:relative;height:250px;"><canvas id="chartRegionStack"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ct">Component Split — Monthly</div>
+      <div style="position:relative;height:250px;"><canvas id="chartCompMonth"></canvas></div>
+    </div>
+  </div>
+  </div>
+
 </div>
 
 <!-- DIC Breakdown -->
@@ -614,9 +662,18 @@ body.light #drop-zone{background:#eef1f7;}
   <div class="card" style="margin-bottom:12px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
       <div class="ct" style="margin:0;">Select a DIC</div>
-      <div class="cg" style="flex-direction:row;align-items:center;gap:8px;">
+      <div class="cg" style="flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="white-space:nowrap;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:1px;">Region</label>
+        <select id="sel-dic-region" onchange="onDicRegionChange()" style="min-width:80px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:12px;font-family:'Syne',sans-serif;">
+          <option value="all">All</option>
+          <option value="NR">NR</option>
+          <option value="WR">WR</option>
+          <option value="SR">SR</option>
+          <option value="ER">ER</option>
+          <option value="NER">NER</option>
+        </select>
         <label style="white-space:nowrap;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:1px;">DIC</label>
-        <select id="sel-dic" style="min-width:210px;"></select>
+        <select id="sel-dic" style="min-width:240px;"></select>
       </div>
     </div>
     <div class="dic-info" id="dic-stats"></div>
@@ -643,37 +700,108 @@ body.light #drop-zone{background:#eef1f7;}
   </div>
 </div>
 
-<!-- Monthly Trends -->
-<div id="tab-trends" class="tc">
+
+<!-- Bilateral Charges Tab -->
+<div id="tab-bilateral" class="tc">
+
+  <!-- Download bar -->
   <div class="dl-bar">
-    <span class="dl-label">Download trends data</span>
-    <button class="dl-btn csv" onclick="downloadTrendsCSV()">
+    <span class="dl-label">Download bilateral data</span>
+    <button class="dl-btn csv" onclick="downloadBilateralCSV()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
     </button>
-    <button class="dl-btn xlsx" onclick="downloadTrendsXLSX()">
+    <button class="dl-btn xlsx" onclick="downloadBilateralXLSX()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
     </button>
-    <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:4px;" id="tr-dl-info"></span>
+    <span id="bil-dl-info" style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:4px;"></span>
   </div>
+
+  <!-- Summary cards row -->
+  <div id="bil-metrics" class="metrics" style="margin-bottom:16px;"></div>
+
+  <!-- Entity breakdown + monthly trend side by side -->
   <div class="card" style="margin-bottom:12px;">
-    <div class="ct">Total Charges by Region — Monthly</div>
-    <div class="leg" id="leg-trend"></div>
-    <div style="position:relative;height:270px;"><canvas id="chartTrend"></canvas></div>
-  </div>
-  <div class="chart-row">
-    <div class="card">
-      <div class="ct">Region Share — Stacked</div>
-      <div style="position:relative;height:250px;"><canvas id="chartRegionStack"></canvas></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <div class="ct" id="bil-trend-title" style="margin:0;">Monthly Bilateral Charges</div>
+      <div class="cg" style="flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Region</label>
+        <select id="sel-bil-entity-region" onchange="onBilEntityRegionChange()"
+          style="min-width:80px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:6px 10px;font-size:12px;font-family:'Syne',sans-serif;">
+          <option value="all">All</option>
+          <option value="NR">NR</option>
+          <option value="WR">WR</option>
+          <option value="SR">SR</option>
+          <option value="ER">ER</option>
+          <option value="NER">NER</option>
+        </select>
+        <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Entity</label>
+        <select id="sel-bil-dic"
+          style="min-width:220px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:6px 10px;font-size:11px;font-family:'DM Mono',monospace;"></select>
+      </div>
     </div>
-    <div class="card">
-      <div class="ct">Component Split — Monthly</div>
-      <div style="position:relative;height:250px;"><canvas id="chartCompMonth"></canvas></div>
-    </div>
+    <div id="bil-dic-stats" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    <div style="position:relative;height:280px;"><canvas id="chartBilTrend"></canvas></div>
   </div>
+
+  <!-- Region breakdown -->
+  <div class="card">
+    <div class="ct">Bilateral Charges by Region — Monthly</div>
+    <div style="position:relative;height:260px;"><canvas id="chartBilRegion"></canvas></div>
+  </div>
+
 </div>
 
+<!-- Monthly Trends -->
 <!-- Upload / Add Data -->
-<div id="tab-upload" class="tc">
+<!-- Monthly Table Tab -->
+<div id="tab-monthtable" class="tc">
+
+  <!-- Controls row -->
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Month</label>
+      <select id="mt-month-sel" onchange="renderMonthTable()"
+        style="min-width:110px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:12px;font-family:'DM Mono',monospace;">
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Region</label>
+      <select id="mt-region-sel" onchange="renderMonthTable()"
+        style="min-width:90px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:12px;font-family:'Syne',sans-serif;">
+        <option value="all">All</option>
+        <option value="NR">NR</option>
+        <option value="WR">WR</option>
+        <option value="SR">SR</option>
+        <option value="ER">ER</option>
+        <option value="NER">NER</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+      <span id="mt-count" style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;"></span>
+      <button class="dl-btn csv" onclick="downloadMonthTableCSV()" style="font-size:10px;padding:5px 10px;">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>CSV
+      </button>
+      <button class="dl-btn xlsx" onclick="downloadMonthTableXLSX()" style="font-size:10px;padding:5px 10px;">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px;"><path d="M8 2v8m0 0L5 7m3 3 3-3M2 12h12"/></svg>Excel
+      </button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div id="mt-table-wrap" style="overflow-x:auto;max-height:70vh;overflow-y:auto;">
+      <table id="mt-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace;">
+        <thead id="mt-thead"></thead>
+        <tbody id="mt-tbody"></tbody>
+        <tfoot id="mt-tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div id="tab-upload"
+ class="tc">
 
   <!-- Mode toggle -->
   <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
@@ -703,7 +831,7 @@ body.light #drop-zone{background:#eef1f7;}
       <!-- Format badges -->
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
         <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;">Accepted formats:</span>
-        <span style="background:#1a2a1a;color:#2ecf8e;border:1px solid #2ecf8e44;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">Power Grid Native</span>
+        <span style="background:#1a2a1a;color:#2ecf8e;border:1px solid #2ecf8e44;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">Grid India Format</span>
         <span style="background:#1a1e2a;color:#4f8ef7;border:1px solid #4f8ef744;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">Dashboard Template</span>
         <span style="background:#2a1a1a;color:#f7c24f;border:1px solid #f7c24f44;border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;">CSV</span>
       </div>
@@ -711,8 +839,11 @@ body.light #drop-zone{background:#eef1f7;}
       <!-- Two-format explainer -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
         <div style="background:var(--surface2);border:1px solid #2ecf8e33;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:11px;font-weight:700;color:#2ecf8e;font-family:'DM Mono',monospace;margin-bottom:6px;">Power Grid Native Format ✓</div>
-          <div style="font-size:11px;color:var(--muted);line-height:1.6;">The official monthly billing Excel sent by Power Grid/CTU — upload it directly. Month is auto-detected from the title row. Columns: S.No · Zone · Region · GNAsh · AC-UBC · AC-BC · NC-RE · NC-HVDC · RC · TC · Bilateral</div>
+          <div style="font-size:11px;font-weight:700;color:#2ecf8e;font-family:'DM Mono',monospace;margin-bottom:6px;">Grid India Format ✓</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;">The official monthly POSOCO/CTU billing Excel — upload directly. Month &amp; year auto-detected from title row. Sheet: any name.<br><br>
+            <b>Row 1 headers:</b> S.No. · Designated ISTS Customer · Region · GNAsh (in MW) · Usage based AC system charges (₹) · Balance AC system charges (₹) · National Component (₹) · [NC-HVDC sub-col] · Regional Component (₹) · Transformers component (₹) · Bilateral Charges (₹) · Total<br><br>
+            <b>Row 2 sub-headers:</b> AC-UBC · AC-BC · NC-RE · NC-HVDC · RC · TC<br><br>
+            Values in Indian number format e.g. <code>28,66,20,295</code> are handled automatically.</div>
         </div>
         <div style="background:var(--surface2);border:1px solid #4f8ef733;border-radius:8px;padding:12px 14px;">
           <div style="font-size:11px;font-weight:700;color:#4f8ef7;font-family:'DM Mono',monospace;margin-bottom:6px;">Dashboard Template Format</div>
@@ -867,7 +998,7 @@ body.light #drop-zone{background:#eef1f7;}
     <div class="card" style="margin-bottom:14px;">
       <div class="ct">Manual Table Entry — One Month, All DICs</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.7;">
-        Enter data exactly like the Power Grid billing sheet — select the month at the top, then fill in values row by row.
+        Enter data exactly like the Grid India billing sheet — select the month at the top, then fill in values row by row.
         Only rows with at least one non-zero value are saved. Leave a row blank to skip it.
       </p>
 
@@ -999,6 +1130,8 @@ body.light #drop-zone{background:#eef1f7;}
       <span style="color:#f7614f">■</span> Missing / zero &nbsp;
       <span style="color:#f7c24f">■</span> Partial (some components zero). Hover for details.
     </p>
+    <div id="hm-summary" style="font-size:10px;font-family:'DM Mono',monospace;
+  margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);"></div>
     <div id="heatmap-container" style="overflow-x:auto;"></div>
     <div class="hm-legend">
       <div class="hm-swatch" style="background:#2ecf8e;"></div>Complete
@@ -1046,6 +1179,8 @@ body.light #drop-zone{background:#eef1f7;}
   </div>
 </div>
 
+
+
 <script>
 // ─── ALL MONTHS ──────────────────────────────────────────────────────────────
 // Index: 0=Jan24 1=Feb24 2=Mar24 3=Apr24 4=May24 5=Jun24
@@ -1069,6 +1204,9 @@ const CUSTOM_COL_COLORS = [
 // Which components are currently active (for Part C toggles)
 // Starts with all built-ins enabled
 let ACTIVE_COMPS = new Set(['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil']);
+
+// Set of DIC names that are bilateral-only (populated from /api/raw_data response)
+let BILATERAL_DICS = new Set();
 
 function activeKeys() {
   return COMP_KEYS.filter(k => ACTIVE_COMPS.has(k));
@@ -1103,7 +1241,14 @@ let calHover = -1;
 // ── Helper functions ──────────────────────────────────────────────────────────
 function getTotal(m){ if(!m) return 0; return COMP_KEYS.reduce((s,k)=>s+(m[k]||0),0); }
 function getVal(m, comp){ if(!m) return 0; if(comp==='total') return getTotal(m); return m[comp]||0; }
-function fmt(v){ if(!v) return '₹0'; const cr=Math.round(v/1e7); return '₹'+cr.toLocaleString()+'Cr'; }
+function fmt(v){
+  if(!v || v === 0) return '₹0';
+  const abs = Math.abs(v);
+  if(abs >= 1e7) return '₹' + Math.round(v/1e7).toLocaleString() + ' Cr';
+  if(abs >= 1e5) return '₹' + (v/1e5).toFixed(1) + ' L';
+  if(abs >= 1e3) return '₹' + Math.round(v/1e3).toLocaleString() + ' K';
+  return '₹' + Math.round(v).toLocaleString();
+}
 function pct(v,t){ if(!t) return '0%'; return Math.round(v/t*100)+'%'; }
 function updateFill(){
   // Update slider fill — safely check element exists first
@@ -1138,6 +1283,10 @@ async function loadDataFromAPI() {
 
     ALL_MONTH_LABELS = data.monthLabels;
     RAW = data.raw;
+    // Populate bilateral-only set
+    if (data.bilateralOnly && data.bilateralOnly.length) {
+      BILATERAL_DICS = new Set(data.bilateralOnly);
+    }
     // Register any custom columns returned from server
     if (data.customCols && data.customCols.length) {
       data.customCols.forEach(col => {
@@ -1344,18 +1493,35 @@ function dc(id){if(C[id]){C[id].destroy();delete C[id];}}
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 function switchTab(n){
-  document.querySelectorAll('.tab').forEach(t=>{
-    t.classList.remove('active');
+  // Clear active state on ALL tab buttons (primary + secondary)
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.sec-tab').forEach(t => {
+    t.style.background = 'transparent';
+    t.style.color = 'var(--muted)';
   });
-  // Mark the clicked tab active
-  event && event.currentTarget && event.currentTarget.classList.add('active');
-  document.querySelectorAll('.tc').forEach(el=>{
-    el.classList.toggle('active', el.id==='tab-'+n);
+
+  // Mark the clicked button active
+  const btn = event && event.currentTarget;
+  if(btn){
+    if(btn.classList.contains('sec-tab')){
+      // Secondary tab style
+      btn.style.background = 'var(--surface2)';
+      btn.style.color = 'var(--text)';
+    } else {
+      btn.classList.add('active');
+    }
+  }
+
+  // Show the right panel
+  document.querySelectorAll('.tc').forEach(el => {
+    el.classList.toggle('active', el.id === 'tab-' + n);
   });
-  if(n==='trends')       renderTrends();
+
   if(n==='dic')          renderDic();
   if(n==='completeness') renderHeatmap();
   if(n==='audit')        renderAuditLog();
+  if(n==='monthtable') { populateMonthTableDropdown(); renderMonthTable(); }
+  if(n==='bilateral')  { populateBilateralDropdown(); renderBilateral(); }
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -1375,7 +1541,6 @@ function renderOverview(){
 
   document.getElementById('metrics').innerHTML=`
     <div class="metric"><div class="ml">${COMP_LABELS[comp]}</div><div class="mv">${fmt(totalCharge)}</div><div class="ms">${months} month${months>1?'s':''} · ${data.length} DICs</div></div>
-    <div class="metric"><div class="ml">Total GNAsh</div><div class="mv">${totalGnash.toLocaleString()} MW</div><div class="ms">${region==='all'?'All regions':region}</div></div>
     <div class="metric"><div class="ml">Avg per DIC</div><div class="mv">${fmt(avgCharge)}</div><div class="ms">${months} month${months>1?'s':''}</div></div>
     <div class="metric"><div class="ml">Top DIC</div><div class="mv" style="font-size:14px;line-height:1.3">${topDic?topDic.name:'—'}</div><div class="ms">${topDic?fmt(getVal(topDic._rd,comp)):''}</div></div>
     <div class="metric"><div class="ml">Highest Component</div><div class="mv" style="font-size:14px">${COMP_LABELS[COMP_KEYS.reduce((a,b)=>compTotals[COMP_KEYS.indexOf(a)]>compTotals[COMP_KEYS.indexOf(b)]?a:b)]}</div><div class="ms">${pct(Math.max(...compTotals),grandTotal)} of total</div></div>
@@ -1445,13 +1610,90 @@ function renderOverview(){
       scales:{x:{stacked:comp==='total',grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7385',font:{size:10},callback:v=>'₹'+v+'Cr'}},
               y:{stacked:comp==='total',grid:{display:false},ticks:{color:'#888',font:{size:11}}}}}
   });
+
+  // Render trend charts below in the same tab
+  renderTrends();
 }
 
 // ─── DIC Breakdown ────────────────────────────────────────────────────────────
 function populateDicDropdown(){
-  const sel=document.getElementById('sel-dic');
-  sel.innerHTML=RAW.map(d=>`<option value="${d.name}">${d.name} (${d.region})</option>`).join('');
-  sel.addEventListener('change',renderDic);
+  const sel = document.getElementById('sel-dic');
+  if(!sel) return;
+  const regionSel = document.getElementById('sel-dic-region');
+  const regionFilter = regionSel ? regionSel.value : 'all';
+  const prev = sel.value;
+
+  // Exclude bilateral-only DICs; optionally filter by region
+  const filtered = RAW.filter(d =>
+    !BILATERAL_DICS.has(d.name) &&
+    (regionFilter === 'all' || d.region === regionFilter)
+  );
+
+  sel.innerHTML = filtered.map(d =>
+    `<option value="${d.name}">${d.name} (${d.region})</option>`
+  ).join('');
+
+  // Restore previous selection if it's still in the list; otherwise pick first
+  if(prev && filtered.find(d => d.name === prev)){
+    sel.value = prev;
+  }
+
+  sel.onchange = renderDic;
+}
+
+function onDicRegionChange(){
+  populateDicDropdown();
+  // Auto-select the first DIC in the new region and render it
+  const sel = document.getElementById('sel-dic');
+  if(sel && sel.options.length > 0){
+    sel.value = sel.options[0].value;
+    renderDic();
+  }
+}
+
+function populateBilateralDropdown(){
+  const sel = document.getElementById('sel-bil-dic');
+  if(!sel) return;
+  const regionSel = document.getElementById('sel-bil-entity-region');
+  const regionFilter = regionSel ? regionSel.value : 'all';
+  const current = sel.value;
+
+  // Get all bilateral entities; filter by region if one is selected
+  let entities = RAW.filter(d => BILATERAL_DICS.has(d.name));
+  if(regionFilter !== 'all'){
+    entities = entities.filter(d => d.region === regionFilter);
+  }
+
+  // Sort by total bilateral desc so most significant entity is first
+  entities.sort((a,b) => {
+    const tot = d => Object.keys(d).filter(k=>k.startsWith('m'))
+      .reduce((s,k)=>s+((d[k]&&d[k].bil)||0), 0);
+    return tot(b) - tot(a);
+  });
+
+  // When All is selected, show region in parentheses; when filtered, omit it
+  sel.innerHTML = entities.map(d =>
+    regionFilter === 'all'
+      ? '<option value="' + d.name + '">' + d.name + ' (' + d.region + ')</option>'
+      : '<option value="' + d.name + '">' + d.name + '</option>'
+  ).join('');
+
+  // Restore previous selection if still in list; else pick first
+  if(current && entities.find(d => d.name === current)){
+    sel.value = current;
+  }
+  sel.onchange = renderBilateral;
+}
+
+function onBilEntityRegionChange(){
+  populateBilateralDropdown();
+  populateMonthTableDropdown();
+  // Auto-select first entity in the new region and render
+  const sel = document.getElementById('sel-bil-dic');
+  if(sel && sel.options && sel.options.length > 0){
+    sel.value = sel.options[0].value;
+    renderBilateral();
+  }
 }
 function populateManualDicDropdown(){
   const sel=document.getElementById('rm-dic-sel');
@@ -1514,13 +1756,13 @@ function renderDic(){
   // Monthly bar (all 18 months, highlight range)
   document.getElementById('dic-month-title').textContent=`${dic.name} — Monthly Component Breakdown`;
   // Use lakhs if DIC's peak monthly total is below 1Cr, else crores
-  const _dicPeak=Math.max(...Array.from({length:N},(_,i)=>COMP_KEYS.reduce((s,k)=>(s+(dic['m'+i][k]||0)),0)));
+  const _dicPeak=Math.max(...Array.from({length:ALL_MONTH_LABELS.length},(_,i)=>COMP_KEYS.reduce((s,k)=>(s+(dic['m'+i][k]||0)),0)));
   const _dicDiv=_dicPeak>=1e7?1e7:_dicPeak>=1e5?1e5:1e3;
   const _dicUnit=_dicDiv===1e7?'Cr':_dicDiv===1e5?'L':'K';
   const allMData=COMP_KEYS.map(k=>({
     label:COMP_LABELS[k],
-    data:Array.from({length:N},(_, i)=>parseFloat(((dic['m'+i]&&dic['m'+i][k]||0)/_dicDiv).toFixed(2))),
-    backgroundColor:Array.from({length:N},(_,i)=>i>=slStart&&i<=slEnd?COMP_COLORS[k]:COMP_COLORS[k]+'44'),
+    data:Array.from({length:ALL_MONTH_LABELS.length},(_, i)=>parseFloat(((dic['m'+i]&&dic['m'+i][k]||0)/_dicDiv).toFixed(2))),
+    backgroundColor:Array.from({length:ALL_MONTH_LABELS.length},(_,i)=>i>=slStart&&i<=slEnd?COMP_COLORS[k]:COMP_COLORS[k]+'44'),
     borderWidth:0,stack:'a'
   }));
   dc('dicmonths');
@@ -1566,9 +1808,9 @@ function renderDic(){
 
   const TOTAL_COLOR = '#ffffff';
   const compDatasets = COMP_KEYS.map(k =>
-    mkLine(k, COMP_COLORS[k], Array.from({length:N},(_,i)=>Math.round(dic['m'+i][k]/1e7)), false)
+    mkLine(k, COMP_COLORS[k], Array.from({length:ALL_MONTH_LABELS.length},(_,i)=>Math.round(dic['m'+i][k]/1e7)), false)
   );
-  const totalData = Array.from({length:N}, (_,i) =>
+  const totalData = Array.from({length:ALL_MONTH_LABELS.length}, (_,i) =>
     Math.round(COMP_KEYS.reduce((s,k)=>s+dic['m'+i][k],0)/1e7)
   );
   const totalDataset = mkLine('total', TOTAL_COLOR, totalData, true);
@@ -1685,10 +1927,11 @@ function renderTrends(){
 function renderAll(){
   renderOverview();
   const activeTab=document.querySelector('.tab.active').textContent.trim().toLowerCase();
-  if(activeTab.includes('dic'))        renderDic();
-  if(activeTab.includes('trend'))      renderTrends();
+  if(activeTab.includes('dic') && !activeTab.includes('bilateral')) renderDic();
   if(activeTab.includes('coverage') ||
      activeTab.includes('completeness')) renderHeatmap();
+  if(activeTab.includes('bilateral'))  renderBilateral();
+  if(activeTab.includes('monthly table') || activeTab.includes('monthtable')) { populateMonthTableDropdown(); renderMonthTable(); }
 }
 
 // populateDicDropdown and renderOverview are called in bootstrap after data loads
@@ -1700,7 +1943,7 @@ function rangeIdxs(){return Array.from({length:slEnd-slStart+1},(_,i)=>slStart+i
 function rangeMonths(){return rangeIdxs().map(i=>ALL_MONTH_LABELS[i]);}
 
 // Convert ₹ paise to actual rupees (values are already in rupees)
-function rupees(v){return Math.round(v);}
+function rupees(v){return Math.round(v||0)||0;}
 
 // ── Overview data: one row per DIC per month ──────────────────────────────────
 function buildOverviewRows(){
@@ -1713,12 +1956,12 @@ function buildOverviewRows(){
   rows.push(header);
   filtered.forEach(d=>{
     idxs.forEach(mi=>{
-      const m=d['m'+mi];
+      const m=d['m'+mi]||{ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
       const tot=getTotal(m);
       rows.push([
-        d.name, d.region, d.gnash, ALL_MONTH_LABELS[mi],
-        rupees(m.ac_ubc), rupees(m.ac_bc), rupees(m.nc_re),
-        rupees(m.nc_hvdc), rupees(m.rc), rupees(m.tc), rupees(m.bil||0), rupees(tot)
+        d.name, d.region, d.gnash||0, ALL_MONTH_LABELS[mi],
+        rupees(m.ac_ubc||0), rupees(m.ac_bc||0), rupees(m.nc_re||0),
+        rupees(m.nc_hvdc||0), rupees(m.rc||0), rupees(m.trx||0), rupees(m.bil||0), rupees(tot)
       ]);
     });
   });
@@ -1734,25 +1977,25 @@ function buildDicRows(){
   const header=['DIC Name','Region','GNAsh (MW)','Month',
     'AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)','Bilateral (₹)','Total (₹)'];
   rows.push(header);
-  // Monthly detail
-  const sums={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,tc:0,bil:0};
+  // Monthly detail — use 'trx' key (TC in DB), initialise sums with correct keys
+  const sums={ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
   idxs.forEach(mi=>{
-    const m=dic['m'+mi];
+    const m=dic['m'+mi]||{ac_ubc:0,ac_bc:0,nc_re:0,nc_hvdc:0,rc:0,trx:0,bil:0};
     const tot=getTotal(m);
-    COMP_KEYS.forEach(k=>sums[k]+=m[k]);
+    COMP_KEYS.forEach(k=>{ sums[k]=(sums[k]||0)+(m[k]||0); });
     rows.push([
-      dic.name, dic.region, dic.gnash, ALL_MONTH_LABELS[mi],
-      rupees(m.ac_ubc), rupees(m.ac_bc), rupees(m.nc_re),
-      rupees(m.nc_hvdc), rupees(m.rc), rupees(m.tc), rupees(m.bil||0), rupees(tot)
+      dic.name, dic.region, dic.gnash||0, ALL_MONTH_LABELS[mi],
+      rupees(m.ac_ubc||0), rupees(m.ac_bc||0), rupees(m.nc_re||0),
+      rupees(m.nc_hvdc||0), rupees(m.rc||0), rupees(m.trx||0), rupees(m.bil||0), rupees(tot)
     ]);
   });
   // Summary row
-  const sumTot=COMP_KEYS.reduce((s,k)=>s+sums[k],0);
+  const sumTot=COMP_KEYS.reduce((s,k)=>s+(sums[k]||0),0);
   rows.push([
-    dic.name+' (TOTAL)', dic.region, dic.gnash,
+    dic.name+' (TOTAL)', dic.region, dic.gnash||0,
     ALL_MONTH_LABELS[slStart]+' – '+ALL_MONTH_LABELS[slEnd],
-    rupees(sums.ac_ubc), rupees(sums.ac_bc), rupees(sums.nc_re),
-    rupees(sums.nc_hvdc), rupees(sums.rc), rupees(sums.tc), rupees(sums.bil||0), rupees(sumTot)
+    rupees(sums.ac_ubc||0), rupees(sums.ac_bc||0), rupees(sums.nc_re||0),
+    rupees(sums.nc_hvdc||0), rupees(sums.rc||0), rupees(sums.trx||0), rupees(sums.bil||0), rupees(sumTot)
   ]);
   return rows;
 }
@@ -1770,10 +2013,10 @@ function buildTrendsRows(){
   rows.push(['Month',...REGIONS,...COMP_KEYS.map(k=>COMP_LABELS[k]+' (All)'),'Grand Total']);
   idxs.forEach(mi=>{
     const regionTotals=REGIONS.map(r=>
-      Math.round(RAW.filter(d=>d.region===r).reduce((s,d)=>s+getTotal(d['m'+mi]),0))
+      Math.round(RAW.filter(d=>d.region===r).reduce((s,d)=>s+getTotal(d['m'+mi]||{}),0))
     );
     const compTotals=COMP_KEYS.map(k=>
-      Math.round(RAW.reduce((s,d)=>s+d['m'+mi][k],0))
+      Math.round(RAW.reduce((s,d)=>s+((d['m'+mi]&&d['m'+mi][k])||0),0))
     );
     const grand=regionTotals.reduce((a,b)=>a+b,0);
     rows.push([ALL_MONTH_LABELS[mi],...regionTotals,...compTotals,grand]);
@@ -1804,8 +2047,6 @@ function triggerXLSX(rows, filename, sheetName='Data'){
     wch:Math.max(12,...rows.map(r=>String(r[ci]||'').length))
   }));
   ws['!cols']=colWidths;
-  // Freeze top row
-  ws['!freeze']={xSplit:0,ySplit:1};
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,sheetName);
   XLSX.writeFile(wb, filename);
@@ -1863,17 +2104,17 @@ function downloadTrendsXLSX(){
 // ─── UPLOAD TAB ───────────────────────────────────────────────────────────────
 
 const COL_SPEC = [
-  {col:'DIC Name',    ex:'Maharashtra',      note:'Must match existing DIC name exactly (or new DIC will be created)'},
-  {col:'Region',      ex:'WR',               note:'NR / WR / SR / ER / NER'},
-  {col:'GNAsh (MW)',  ex:'10076',            note:'Numeric, in MW'},
-  {col:'Month',       ex:"Jan'26",           note:"Format: Mon'YY  e.g. Jul'27"},
-  {col:'AC-UBC (₹)',  ex:'1087615163',       note:'Raw rupees, numeric'},
-  {col:'AC-BC (₹)',   ex:'1349616304',       note:'Raw rupees, numeric'},
-  {col:'NC-RE (₹)',   ex:'406637187',        note:'Raw rupees, numeric'},
-  {col:'NC-HVDC (₹)', ex:'253039704',        note:'Raw rupees, numeric'},
-  {col:'RC (₹)',      ex:'102774920',        note:'Raw rupees, numeric'},
-  {col:'TC (₹)',      ex:'68688449',         note:'Raw rupees, numeric'},
-  {col:'Bilateral (₹)', ex:'5358822',          note:'Raw rupees, numeric — leave blank or 0 if none'},
+  {col:'S.No.',                                       ex:'1',            note:'Serial number'},
+  {col:'Designated ISTS Customer',                    ex:'Delhi',        note:'Entity name — new DIC created if not found'},
+  {col:'Region',                                      ex:'NR',           note:'NR / WR / SR / ER / NER'},
+  {col:'GNAsh (in MW)',                               ex:'4818',         note:'Numeric, in MW — leave blank for bilateral-only entities'},
+  {col:'Usage based AC system charges (\u20b9)',      ex:'28,66,20,295', note:'AC-UBC — Indian comma format accepted e.g. 28,66,20,295'},
+  {col:'Balance AC system charges (\u20b9)',          ex:'64,36,02,773', note:'AC-BC — raw rupees'},
+  {col:'National Component (\u20b9) - NC-RE',        ex:'21,19,73,623', note:'NC-RE — raw rupees'},
+  {col:'National Component (\u20b9) - NC-HVDC',      ex:'12,31,17,919', note:'NC-HVDC — raw rupees'},
+  {col:'Regional Component (\u20b9)',                 ex:'21,32,34,938', note:'RC — raw rupees'},
+  {col:'Transformers component (\u20b9)',             ex:'5,09,62,164',  note:'TC — raw rupees'},
+  {col:'Bilateral Charges (\u20b9)',                  ex:'',             note:'Leave blank for non-bilateral entities'},
 ];
 
 // Build column spec table
@@ -1935,27 +2176,30 @@ function parseMonthLabel(s){
   return null;
 }
 
-// ── Detect if this is a Power Grid native format workbook ─────────────────────────
+// ── Detect if this is a Grid India native format workbook ─────────────────────────
 // Native format: row1=Annexure-III, row2=title with month, row3/4=merged headers, row5+=data
 function detectPGCILNative(ws){
   const rawRows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
   if(rawRows.length < 5) return null;
-  // Title row (row 2, index 1) should contain "billing month of"
-  const titleCell = rawRows[1] && rawRows[1][0] ? String(rawRows[1][0]) : '';
-  if(!titleCell.toLowerCase().includes('billing month')) return null;
-  // Extract month from title: "...billing month of December,2024"
-  const mMatch = titleCell.match(/billing month of ([A-Za-z]+)[,\s]+(\d{4})/i);
+  // Title row may be at index 0 or 1 — check both
+  const titleCell = (rawRows[0] && rawRows[0][0] ? String(rawRows[0][0]) :
+                    (rawRows[1] && rawRows[1][0] ? String(rawRows[1][0]) : ''));
+  // Normalise non-breaking spaces ( ) to regular spaces for matching
+  const titleNorm = titleCell.replace(/\u00a0/g,' ');
+  if(!titleNorm.toLowerCase().includes('billing month')) return null;
+  // Extract month from title: "...billing month of July,2026"
+  const mMatch = titleNorm.match(/billing month of ([A-Za-z]+)[,\s]+(\d{4})/i);
   if(!mMatch) return null;
   const mp = parseMonthLabel(mMatch[1]+','+mMatch[2]);
   if(!mp) return null;
   return {rawRows, year:mp.year, month:mp.month, titleCell};
 }
 
-// ── Parse Power Grid native rows → standard parsed array ──────────────────────────
+// ── Parse Grid India native rows → standard parsed array ──────────────────────────
 function parsePGCILNative(rawRows, year, month){
   const parsed=[], errors=[];
   // Data starts at row index 4 (0-based), cols: [0]=sno [1]=DIC [2]=region [3]=gnash [4]=ac_ubc [5]=ac_bc [6]=nc_re [7]=nc_hvdc [8]=rc [9]=tc
-  for(let i=4; i<rawRows.length; i++){
+  for(let i=3; i<rawRows.length; i++){
     const r=rawRows[i];
     if(!r || !r[1]) continue;
     const dicName=String(r[1]).trim().replace(/\u00a0/g,' ').replace(/\s+/g,' ');
@@ -1963,17 +2207,19 @@ function parsePGCILNative(rawRows, year, month){
     if(dicName.toUpperCase().startsWith('TOTAL')) continue;
     const region=r[2] ? String(r[2]).trim().toUpperCase() : '';
     if(!['NR','WR','SR','ER','NER'].includes(region)){ errors.push(`Row ${i+1}: unknown region "${region}" for "${dicName}"`); continue; }
-    const gnash = parseInt(r[3])||0;
-    const ac_ubc  = parseFloat(r[4])||0;
-    const ac_bc   = parseFloat(r[5])||0;
-    const nc_re   = parseFloat(r[6])||0;
-    const nc_hvdc = parseFloat(r[7])||0;
-    const rc      = parseFloat(r[8])||0;
-    const tc      = parseFloat(r[9])||0;
-    const bil     = parseFloat(r[10])||0;
-    // Skip rows with zero across all components (bilateral-only entities)
-    if(ac_ubc===0 && ac_bc===0 && nc_re===0 && nc_hvdc===0 && rc===0 && tc===0 && bil===0) continue;
-    parsed.push({dicName, region, gnash, year, month, ac_ubc, ac_bc, nc_re, nc_hvdc, rc, tc, bil});
+    // Strip Indian-format commas e.g. "28,66,20,295" → 286620295
+    const ind = v => { if(v===null||v===undefined) return 0; const s=String(v).replace(/,/g,''); const n=parseFloat(s); return isNaN(n)?0:Math.round(n); };
+    const gnash   = ind(r[3]);
+    const ac_ubc  = ind(r[4]);
+    const ac_bc   = ind(r[5]);
+    const nc_re   = ind(r[6]);
+    const nc_hvdc = ind(r[7]);
+    const rc      = ind(r[8]);
+    const trx     = ind(r[9]);   // TC column → stored as trx
+    const bil     = ind(r[10]);
+    // Skip completely empty rows (no charges at all)
+    if(ac_ubc===0 && ac_bc===0 && nc_re===0 && nc_hvdc===0 && rc===0 && trx===0 && bil===0) continue;
+    parsed.push({dicName, region, gnash, year, month, ac_ubc, ac_bc, nc_re, nc_hvdc, rc, trx, bil});
   }
   return {parsed, errors};
 }
@@ -1981,90 +2227,92 @@ function parsePGCILNative(rawRows, year, month){
 // ── Smart file upload handler ─────────────────────────────────────────────────
 function handleFileUpload(file){
   if(!file) return;
-  const resEl=document.getElementById('upload-result');
-  const prevEl=document.getElementById('upload-preview');
+  const resEl  = document.getElementById('upload-result');
+  const prevEl = document.getElementById('upload-preview');
   resEl.style.display=''; prevEl.style.display='none';
-  resEl.innerHTML=`<div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;">⏳ Detecting format of <strong>${file.name}</strong>…</div>`;
+  resEl.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:12px;">⏳ Uploading <strong>'+file.name+'</strong> to server for parsing…</div>';
 
-  const reader=new FileReader();
-  reader.onload=e=>{
-    try{
-      const data=new Uint8Array(e.target.result);
-      const wb=XLSX.read(data,{type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
+  // POST the raw file to Flask — server-side excel_parser.py handles everything
+  // This avoids all client-side XLSX.js parsing issues (wrong month, Indian numbers, etc.)
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('overwrite', 'true');
 
-      // ── Try PGCIL native format first ──
-      const pgcil=detectPGCILNative(ws);
-      if(pgcil){
-        const {parsed, errors}=parsePGCILNative(pgcil.rawRows, pgcil.year, pgcil.month);
-        if(!parsed.length){
-          resEl.innerHTML=msg('error','Detected Power Grid format but could not extract data. '+errors.slice(0,2).join('; '));
-          return;
-        }
-        const label=buildMonthLabel(pgcil.year, pgcil.month);
-        _pendingRows=parsed;
-        resEl.innerHTML=msg('ok',
-          `<span style="background:#1a2a1a;color:#2ecf8e;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">POWER GRID NATIVE</span>`+
-          `Auto-detected <strong>${label}</strong> from title. Parsed <strong>${parsed.length}</strong> DICs.`+
-          (errors.length?` <span style="color:#f7c24f">${errors.length} row(s) skipped.</span>`:''));
-        buildPreviewTable(parsed);
-        prevEl.style.display='';
-        document.getElementById('preview-count').textContent=parsed.length+' rows · '+label;
+  fetch('/api/upload', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(res => {
+      if(res.error){
+        resEl.innerHTML = msg('error', res.error);
         return;
       }
 
-      // ── Fall back to template / multi-month format ──
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-      if(!rows.length){ resEl.innerHTML=msg('error','File appears empty or unreadable.'); return; }
-
-      const required=['DIC Name','Region','Month','AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)'];
-      const keys=Object.keys(rows[0]);
-      const missing=required.filter(r=>!keys.includes(r));
-      if(missing.length){
-        resEl.innerHTML=msg('error',
-          `<span style="background:#2a2010;color:#f7c24f;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">FORMAT UNKNOWN</span>`+
-          'Missing columns: '+missing.join(', ')+'.<br>This doesn\'t look like a Power Grid native file or the dashboard template. Please download the template or upload a standard Power Grid monthly billing sheet.');
+      if(res.status === 'conflicts'){
+        // Conflicts found — ask user to confirm overwrite
+        resEl.innerHTML = msg('warn',
+          '<strong>'+res.conflicts.length+'</strong> month(s) already exist in DB. '+
+          '<button onclick="reUploadWithOverwrite()" style="margin-left:8px;padding:3px 10px;'+
+          'background:#f7c24f22;border:1px solid #f7c24f44;border-radius:4px;'+
+          'color:#f7c24f;cursor:pointer;font-size:10px;">Overwrite All</button> '+
+          '<button onclick="skipExisting()" style="margin-left:4px;padding:3px 10px;'+
+          'background:transparent;border:1px solid var(--border);border-radius:4px;'+
+          'color:var(--muted);cursor:pointer;font-size:10px;">Skip Existing</button>');
+        window._lastUploadFile = file;
         return;
       }
 
-      const parsed=[]; const errors=[];
-      rows.forEach((r,i)=>{
-        const mp=parseMonthLabel(r['Month']);
-        if(!mp){errors.push(`Row ${i+2}: invalid month "${r['Month']}"`); return;}
-        parsed.push({
-          dicName:String(r['DIC Name']).trim(),
-          region:String(r['Region']).trim().toUpperCase(),
-          gnash:parseInt(r['GNAsh (MW)'])||0,
-          year:mp.year, month:mp.month,
-          ac_ubc:parseFloat(r['AC-UBC (₹)'])||0,
-          ac_bc: parseFloat(r['AC-BC (₹)'])||0,
-          nc_re: parseFloat(r['NC-RE (₹)'])||0,
-          nc_hvdc:parseFloat(r['NC-HVDC (₹)'])||0,
-          rc:    parseFloat(r['RC (₹)'])||0,
-          tc:    parseFloat(r['TC (₹)'])||0,
-          bil:   parseFloat(r['Bilateral (₹)'])||0,
-        });
+      // Success — update charts
+      const dbNote = ' <span style="color:#2ecf8e88;font-size:10px;">✓ Saved to DB ('+res.inserted+' inserted, '+res.total_in_db+' total records)</span>';
+      resEl.innerHTML = msg('ok', '✓ Data saved permanently.'+dbNote);
+
+      // Reload data from server so charts reflect the new data
+      loadDataFromAPI().then(ok => {
+        if(!ok) return;
+        recomputeMeta();
+        rebuildCompToggles();
+        populateDicDropdown();
+        populateBilateralDropdown();
+        N = ALL_MONTH_LABELS.length - 1;
+        slEnd = N;
+        buildCalGrid();
+        updateInfoBar();
+        markPresets();
+        renderAll();
+        addAuditEntry('upload', 'Uploaded '+file.name+' — '+res.inserted+' records saved');
       });
-
-      if(!parsed.length){ resEl.innerHTML=msg('error','No valid rows found. '+errors.slice(0,3).join('; ')); return; }
-
-      _pendingRows=parsed;
-      resEl.innerHTML=msg('ok',
-        `<span style="background:#1a1e2a;color:#4f8ef7;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;margin-right:8px;">TEMPLATE FORMAT</span>`+
-        `Parsed <strong>${parsed.length}</strong> row(s) from <strong>${file.name}</strong>.`+
-        (errors.length?` <span style="color:#f7c24f">${errors.length} row(s) skipped.</span>`:''));
-      buildPreviewTable(parsed);
-      prevEl.style.display='';
-      document.getElementById('preview-count').textContent=parsed.length+' rows';
-
-    } catch(err){
-      resEl.innerHTML=msg('error','Parse error: '+err.message+'. Make sure the file is a valid .xlsx or .csv.');
-    }
-  };
-  reader.readAsArrayBuffer(file);
+    })
+    .catch(err => {
+      resEl.innerHTML = msg('error', 'Upload failed: '+err.message);
+    });
 }
 
-// ─── REMOVE MONTH DATA ────────────────────────────────────────────────────────
+function reUploadWithOverwrite(){
+  if(!window._lastUploadFile) return;
+  const resEl = document.getElementById('upload-result');
+  resEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">⏳ Re-uploading with overwrite…</div>';
+  const formData = new FormData();
+  formData.append('file', window._lastUploadFile);
+  formData.append('overwrite', 'true');
+  fetch('/api/upload', {method:'POST', body:formData})
+    .then(r=>r.json()).then(res=>{
+      resEl.innerHTML = msg('ok', '✓ Overwrite complete. '+res.inserted+' records saved.');
+      loadDataFromAPI().then(()=>{recomputeMeta();rebuildCompToggles();populateDicDropdown();populateBilateralDropdown();N=ALL_MONTH_LABELS.length-1;slEnd=N;buildCalGrid();updateInfoBar();markPresets();renderAll();});
+    });
+}
+
+function skipExisting(){
+  if(!window._lastUploadFile) return;
+  const resEl = document.getElementById('upload-result');
+  resEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">⏳ Uploading new months only…</div>';
+  const formData = new FormData();
+  formData.append('file', window._lastUploadFile);
+  formData.append('overwrite', 'false');
+  fetch('/api/upload', {method:'POST', body:formData})
+    .then(r=>r.json()).then(res=>{
+      resEl.innerHTML = msg('ok', '✓ Done. '+res.inserted+' new records saved.');
+      loadDataFromAPI().then(()=>{recomputeMeta();rebuildCompToggles();populateDicDropdown();populateBilateralDropdown();N=ALL_MONTH_LABELS.length-1;slEnd=N;buildCalGrid();updateInfoBar();markPresets();renderAll();});
+    });
+}
+
 function populateRemovePanel(){
   // Populate month dropdown with all existing months
   const sel=document.getElementById('rm-month-sel');
@@ -2150,15 +2398,38 @@ function executeRemove(){
   renderAll();
 }
 function downloadTemplate(){
-  const header=COL_SPEC.map(c=>c.col);
-  const example=[COL_SPEC.map(c=>c.ex)];
-  // Add a blank row for user
-  example.push(header.map(()=>''));
-  const ws=XLSX.utils.aoa_to_sheet([header,...example]);
-  ws['!cols']=header.map(h=>({wch:Math.max(h.length+4,16)}));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'Data');
-  XLSX.writeFile(wb,'ISTS_Upload_Template.xlsx');
+  // Template matches exact POSOCO billing sheet format + Billing Month column
+  // so it can be uploaded back as a multi-month entry file
+  const row1 = [
+    'S.No.',
+    'Designated ISTS Customer',
+    'Region',
+    'GNAsh (in MW)',
+    'Usage based AC system charges (\u20b9)',
+    'Balance AC system charges (\u20b9)',
+    'National Component (\u20b9) - NC-RE',
+    'National Component (\u20b9) - NC-HVDC',
+    'Regional Component  (\u20b9)',
+    'Transformers component (\u20b9)',
+    'Bilateral Charges (\u20b9)',
+    'Billing Month'
+  ];
+  // Example row: regular DIC
+  const ex1 = [1,'Delhi','NR',4818,'28,66,20,295','64,36,02,773','21,19,73,623','12,31,17,919','21,32,34,938','5,09,62,164','',"Jul'26"];
+  // Example row: bilateral-only entity
+  const ex2 = [2,'NHPC Ltd (for lower Subansiri HEP)','NER','','','','','','','','10,60,58,901',"Jul'26"];
+  // Blank row for user to fill
+  const blank = ['','','','','','','','','','','',''];
+
+  const ws = XLSX.utils.aoa_to_sheet([row1, ex1, ex2, blank, blank, blank, blank, blank]);
+  ws['!cols'] = [
+    {wch:6},{wch:45},{wch:8},{wch:14},
+    {wch:30},{wch:30},{wch:28},{wch:28},
+    {wch:24},{wch:26},{wch:22},{wch:12}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Table 1');
+  XLSX.writeFile(wb, 'ISTS_Upload_Template.xlsx');
 }
 
 // ── Core helpers ─────────────────────────────────────────────────────────────
@@ -2182,16 +2453,7 @@ function getOrCreateMonthIndex(year,month){
   N=newIdx;
   return newIdx;
 }
-function rebuildTicks(){
-  const tc=document.getElementById('month-ticks');
-  tc.innerHTML='';
-  ALL_MONTH_LABELS.forEach(l=>{
-    const s=document.createElement('span');
-    s.textContent=l;
-    if(l.startsWith('Jan')) s.classList.add('yr');
-    tc.appendChild(s);
-  });
-}
+function rebuildTicks(){ /* dead code — calendar picker used instead */ }
 function msg(type,html){
   const col=type==='ok'?'#2ecf8e':'#f7614f';
   const bg=type==='ok'?'#1e2a1a':'#2a1a1a';
@@ -2236,7 +2498,7 @@ function confirmUpload(){
       if(r.gnash) dic.gnash=r.gnash;
       updated.push(r.dicName);
     }
-    dic['m'+mi]={ac_ubc:r.ac_ubc,ac_bc:r.ac_bc,nc_re:r.nc_re,nc_hvdc:r.nc_hvdc,rc:r.rc,trx:r.tc||0,bil:r.bil||0};
+    dic['m'+mi]={ac_ubc:r.ac_ubc||0,ac_bc:r.ac_bc||0,nc_re:r.nc_re||0,nc_hvdc:r.nc_hvdc||0,rc:r.rc||0,trx:r.trx||r.tc||0,bil:r.bil||0};
   });
 
   // Log
@@ -2251,9 +2513,21 @@ function confirmUpload(){
     ${updated.length?Math.min(updated.length,5)+' DIC(s) updated.':''}</span>`;
   logEl.prepend(entry);
 
+  // Persist to database BEFORE clearing _pendingRows
+  const rowsToSave = [..._pendingRows];
   _pendingRows=[];
   document.getElementById('upload-preview').style.display='none';
-  document.getElementById('upload-result').innerHTML=msg('ok','✓ Data merged into dashboard. Charts and slider updated.');
+  fetch('/api/save_rows', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({rows: rowsToSave, overwrite:true})
+  }).then(r=>r.json()).then(res=>{
+    const dbNote = res.error
+      ? ' <span style="color:#f7c24f">⚠ DB: '+res.error+'</span>'
+      : ' <span style="color:#2ecf8e88;font-size:10px;">✓ Saved to DB ('+res.inserted+' inserted, '+res.total_in_db+' total records now)</span>';
+    document.getElementById('upload-result').innerHTML=msg('ok','✓ Data merged and saved permanently.'+dbNote);
+  }).catch(()=>{
+    document.getElementById('upload-result').innerHTML=msg('ok','✓ Data merged into dashboard.');
+  });
 
   // Refresh all charts
   slEnd=ALL_MONTH_LABELS.length-1;
@@ -3129,6 +3403,7 @@ function restoreData() {
 
   // Wire up filter listeners now that data is loaded
   populateDicDropdown();
+  populateBilateralDropdown();
   ['sel-region','sel-component'].forEach(id=>{
     document.getElementById(id).addEventListener('change', renderAll);
   });
@@ -3138,6 +3413,15 @@ function restoreData() {
   markPresets();
   updateFill();
   renderAll();
+
+  // Show live DB stats in Flask console + header
+  fetch('/api/db_info').then(r=>r.json()).then(info=>{
+    if(info.error){ console.warn('[DB]', info.error); return; }
+    console.log('[DB] Path:', info.db_path);
+    console.log('[DB] Records:', info.total_records, '| DICs:', info.unique_dics, '| Latest:', info.latest_month, '| Size:', info.db_size_kb, 'KB');
+    const sub = document.getElementById('hdr-sub');
+    if(sub) sub.textContent += '  ·  DB: ' + info.total_records.toLocaleString() + ' records (' + info.db_size_kb + ' KB)';
+  }).catch(()=>{});
 })();
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3560,10 +3844,15 @@ function selectSearchResult(i){
   if(drop) drop.style.display='none';
   if(inp)  inp.value='';
   // Switch to DIC tab and select this DIC
-  const dicSel = document.getElementById('dic-select');
+  const dicSel = document.getElementById('sel-dic');
   if(dicSel){
     dicSel.value = d.name;
     switchTab('dic');
+    // manually trigger active tab since we're not using event
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => {
+      if(t.textContent.trim().toLowerCase().includes('dic')) t.classList.add('active');
+    });
     renderDic();
   }
 }
@@ -3597,29 +3886,36 @@ function addAuditEntry(action, detail){
 }
 
 function renderAuditLog(){
-  const tbody = document.getElementById('audit-tbody');
+  const list  = document.getElementById('audit-list');
   const count = document.getElementById('audit-count');
-  if(!tbody) return;
-  const filter = (document.getElementById('audit-filter')||{}).value||'all';
+  if(!list) return;
+  const filter = _auditFilter||'all';
   const filtered = filter==='all' ? AUDIT_LOG : AUDIT_LOG.filter(e=>e.action===filter);
-  if(count) count.textContent = `(${filtered.length})`;
-  tbody.innerHTML = filtered.map(e=>`
-    <tr style="border-bottom:1px solid var(--border)22;">
-      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);white-space:nowrap;">${e.ts.replace('T',' ').slice(0,19)}</td>
-      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;">
-        <span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;
-          background:${e.action==='add'?'#2ecf8e22':e.action==='remove'?'#f7614f22':'#4f8ef722'};
-          color:${e.action==='add'?'#2ecf8e':e.action==='remove'?'#f7614f':'#4f8ef7'};">
-          ${e.action.toUpperCase()}
-        </span>
-      </td>
-      <td style="padding:6px 8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text);">${e.detail}</td>
-    </tr>`).join('');
+  if(count) count.textContent='('+filtered.length+')';
+  if(!filtered.length){
+    list.innerHTML='<div style="padding:20px;text-align:center;font-size:12px;color:var(--muted);">No entries yet. Add data via the Add Data tab.</div>';
+    return;
+  }
+  const C={add:'#2ecf8e',edit:'#4f8ef7',overwrite:'#f7c24f',
+            remove:'#f7614f',upload:'#a78bf7',manual:'#38bdf8'};
+  const rows = filtered.map(function(e){
+    const col = C[e.action]||'#4f8ef7';
+    const ts  = e.ts.replace('T',' ').slice(0,19);
+    return '<div style="display:flex;gap:12px;padding:7px 4px;border-bottom:1px solid #252a3644;align-items:flex-start;">'
+      + '<span style="font-size:9px;color:#6b7385;white-space:nowrap;flex-shrink:0;margin-top:2px;">' + ts + '</span>'
+      + '<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;white-space:nowrap;flex-shrink:0;background:' + col + '22;color:' + col + ';">' + e.action.toUpperCase() + '</span>'
+      + '<span style="font-size:11px;color:#e8eaf0;">' + (e.detail||'') + '</span>'
+      + '</div>';
+  });
+  list.innerHTML = rows.join('');
 }
 
-function setAuditFilter(val){
-  const sel = document.getElementById('audit-filter');
-  if(sel) sel.value = val;
+let _auditFilter='all';
+
+function setAuditFilter(val,btn){
+  _auditFilter=val;
+  document.querySelectorAll('.af-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
   renderAuditLog();
 }
 
@@ -3737,16 +4033,460 @@ function mergeRows(rows){
 
 // ── 6. PDF export ─────────────────────────────────────────────────────────────
 function exportPDF(){
-  const modal = document.getElementById('pdf-export-modal');
-  if(modal) modal.style.display='flex';
-}
-
-function doPDFExport(){
-  const modal = document.getElementById('pdf-export-modal');
-  if(modal) modal.style.display='none';
   window.print();
 }
 
+function doPDFExport(){
+  window.print();
+}
+
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BILATERAL CHARGES TAB
+// ══════════════════════════════════════════════════════════════════════════════
+
+function renderBilateral() {
+  renderBilateralOverview();
+  // Auto-select first DIC if none selected
+  const sel = document.getElementById('sel-bil-dic');
+  if(sel && !sel.value && sel.options && sel.options.length > 0){
+    sel.value = sel.options[0].value;
+  }
+  renderBilateralDic();
+  renderBilateralRegion();
+}
+
+// ── Overview: metrics + top DICs bar ─────────────────────────────────────────
+function renderBilateralOverview() {
+  const regionFilter = (document.getElementById('sel-bil-region') || {}).value || 'all';
+
+  // Get all bilateral DICs in range
+  let bilDics = RAW.filter(d => BILATERAL_DICS.has(d.name));
+  if (regionFilter !== 'all') bilDics = bilDics.filter(d => d.region === regionFilter);
+
+  // Aggregate totals across range
+  const totals = bilDics.map(d => {
+    let bil = 0;
+    for (let i = slStart; i <= slEnd; i++) bil += (d['m'+i] && d['m'+i].bil) || 0;
+    return { name: d.name, region: d.region, bil };
+  }).filter(d => d.bil > 0).sort((a,b) => b.bil - a.bil);
+
+  const grandTotal = totals.reduce((s,d) => s + d.bil, 0);
+  const nDics = totals.length;
+  const avg   = nDics ? grandTotal / nDics : 0;
+  const top1  = totals[0] || { name: '—', bil: 0 };
+
+  // Metric cards
+  const metrics = document.getElementById('bil-metrics');
+  if (metrics) {
+    metrics.innerHTML = `
+      <div class="metric"><div class="ml">Total Bilateral</div>
+        <div class="mv">${fmt(grandTotal)}</div>
+        <div class="ms">${slEnd - slStart + 1} months</div></div>
+      <div class="metric"><div class="ml">Entities</div>
+        <div class="mv">${nDics}</div>
+        <div class="ms">${regionFilter === 'all' ? 'All regions' : regionFilter}</div></div>
+      <div class="metric"><div class="ml">Avg per DIC</div>
+        <div class="mv">${fmt(avg)}</div>
+        <div class="ms">in selected range</div></div>
+      <div class="metric"><div class="ml">Largest</div>
+        <div class="mv">${fmt(top1.bil)}</div>
+        <div class="ms">${top1.name.slice(0,25)}${top1.name.length>25?'…':''}</div></div>
+    `;
+  }
+
+}
+
+// ── DIC breakdown: pie + monthly trend ───────────────────────────────────────
+function renderBilateralDic() {
+  const sel = document.getElementById('sel-bil-dic');
+  if (!sel || !sel.value) return;
+  const dicName = sel.value;
+  const dic = RAW.find(d => d.name === dicName);
+  if (!dic) return;
+
+  // Summary stats
+  let total = 0, months = 0;
+  for (let i = slStart; i <= slEnd; i++) {
+    const b = (dic['m'+i] && dic['m'+i].bil) || 0;
+    if (b > 0) { total += b; months++; }
+  }
+  const statsEl = document.getElementById('bil-dic-stats');
+  if (statsEl) {
+    const RCOL = {NR:'#4f8ef7',WR:'#2ecf8e',SR:'#f7614f',ER:'#f7c24f',NER:'#a78bf7'};
+    statsEl.innerHTML = `
+      <div class="ds"><div class="dsl">Region</div>
+        <div class="dsv" style="color:${RCOL[dic.region]||'#4f8ef7'}">${dic.region}</div></div>
+      <div class="ds"><div class="dsl">Total</div>
+        <div class="dsv">${fmt(total)}</div></div>
+      <div class="ds"><div class="dsl">Active Months</div>
+        <div class="dsv">${months}</div></div>
+      <div class="ds"><div class="dsl">Avg/Month</div>
+        <div class="dsv">${fmt(months ? total/months : 0)}</div></div>
+    `;
+  }
+
+  // Monthly trend for this DIC (all months, dim those outside range)
+  const allBil = ALL_MONTH_LABELS.map((_,i) => {
+    const b = (dic['m'+i] && dic['m'+i].bil) || 0;
+    return parseFloat((b / 1e7).toFixed(2));
+  });
+
+  const titleEl = document.getElementById('bil-trend-title');
+  if (titleEl) titleEl.textContent = dicName.length > 35
+    ? dicName.slice(0,34) + '… — Monthly Bilateral'
+    : dicName + ' — Bilateral Charges';
+
+  dc('bilTrend');
+  const ctx = document.getElementById('chartBilTrend');
+  if (!ctx) return;
+
+  C['bilTrend'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ALL_MONTH_LABELS,
+      datasets: [{
+        label: 'Bilateral',
+        data: allBil,
+        backgroundColor: ALL_MONTH_LABELS.map((_,i) =>
+          i >= slStart && i <= slEnd ? '#38bdf8' : '#38bdf822'),
+        borderRadius: 3,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => '₹' + ctx.raw + ' Cr' } }
+      },
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#6b7385',font:{size:9},maxRotation:0} },
+        y: { grid:{color:'#252a36'}, ticks:{color:'#6b7385',callback:v=>'₹'+v+'Cr'} }
+      }
+    }
+  });
+
+  // Pie: just bilateral vs everything (this DIC only has bil, so it's 100%)
+  // Show monthly split: which months had highest charges
+  const nonZero = ALL_MONTH_LABELS
+    .map((l,i) => ({ l, v: allBil[i] }))
+    .filter(x => x.v > 0)
+    .sort((a,b) => b.v - a.v)
+    .slice(0, 8);
+}
+
+// ── Region stacked bar: all bilateral charges by region over time ─────────────
+function renderBilateralRegion() {
+  const RCOL = {NR:'#4f8ef7',WR:'#2ecf8e',SR:'#f7614f',ER:'#f7c24f',NER:'#a78bf7'};
+  const REGIONS = ['NR','WR','SR','ER','NER'];
+
+  const regionSeries = {};
+  REGIONS.forEach(r => { regionSeries[r] = Array(ALL_MONTH_LABELS.length).fill(0); });
+
+  RAW.filter(d => BILATERAL_DICS.has(d.name)).forEach(d => {
+    if (!regionSeries[d.region]) return;
+    ALL_MONTH_LABELS.forEach((_,i) => {
+      regionSeries[d.region][i] += (d['m'+i] && d['m'+i].bil) || 0;
+    });
+  });
+
+  dc('bilRegion');
+  const ctx = document.getElementById('chartBilRegion');
+  if (!ctx) return;
+
+  C['bilRegion'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ALL_MONTH_LABELS,
+      datasets: REGIONS.map(r => ({
+        label: r,
+        data: regionSeries[r].map(v => Math.round(v / 1e7)),
+        backgroundColor: RCOL[r] + 'cc',
+        stack: 'a',
+        borderWidth: 0,
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom',
+          labels: { color: '#6b7385', font: { size: 10 } } },
+        tooltip: {
+          mode: 'index',
+          callbacks: { label: ctx => ctx.dataset.label + ': ₹' + ctx.raw + ' Cr' }
+        }
+      },
+      scales: {
+        x: { stacked: true, grid:{display:false},
+             ticks:{color:'#6b7385',font:{size:9},maxRotation:90} },
+        y: { stacked: true, grid:{color:'#252a36'},
+             ticks:{color:'#6b7385',callback:v=>'₹'+v+'Cr'} }
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+
+
+// ── Bilateral Charges downloads ───────────────────────────────────────────────
+function buildBilateralRows(){
+  const idxs   = rangeIdxs();
+  const regionFilter = (document.getElementById('sel-bil-entity-region')||{}).value || 'all';
+
+  // Get all bilateral entities, filtered by region if set
+  let entities = RAW.filter(d => BILATERAL_DICS.has(d.name));
+  if(regionFilter !== 'all') entities = entities.filter(d => d.region === regionFilter);
+  if(!entities.length) return [];
+
+  const rows = [];
+  // Header
+  rows.push(['Entity Name','Region','Month','Bilateral Charges (₹)']);
+
+  // Per-entity per-month rows + subtotal
+  entities.forEach(d => {
+    let entityTotal = 0;
+    idxs.forEach(mi => {
+      const m   = d['m'+mi] || {bil:0};
+      const bil = m.bil || 0;
+      if(bil > 0 || true){  // include zero months so range is complete
+        rows.push([d.name, d.region, ALL_MONTH_LABELS[mi], rupees(bil)]);
+        entityTotal += bil;
+      }
+    });
+    // Entity subtotal row
+    rows.push([
+      d.name + ' (TOTAL)', d.region,
+      ALL_MONTH_LABELS[slStart] + ' – ' + ALL_MONTH_LABELS[slEnd],
+      rupees(entityTotal)
+    ]);
+    rows.push([]);  // blank separator
+  });
+
+  // Grand total
+  const grandTotal = entities.reduce((s, d) =>
+    s + idxs.reduce((ss, mi) => ss + ((d['m'+mi] && d['m'+mi].bil) || 0), 0), 0
+  );
+  rows.push(['GRAND TOTAL', regionFilter === 'all' ? 'All Regions' : regionFilter,
+    ALL_MONTH_LABELS[slStart] + ' – ' + ALL_MONTH_LABELS[slEnd],
+    rupees(grandTotal)]);
+
+  return rows;
+}
+
+function downloadBilateralCSV(){
+  const rows = buildBilateralRows();
+  if(!rows.length){ alert('No bilateral data in selected range.'); return; }
+  const entityCount = RAW.filter(d => BILATERAL_DICS.has(d.name)).length;
+  const infoEl = document.getElementById('bil-dl-info');
+  if(infoEl) infoEl.textContent = '↓ ' + entityCount + ' entities · ' + rangeIdxs().length + ' months';
+  triggerCSV(rows, 'ISTS_Bilateral_' + rangeSlug() + '.csv');
+}
+
+function downloadBilateralXLSX(){
+  const rows = buildBilateralRows();
+  if(!rows.length){ alert('No bilateral data in selected range.'); return; }
+  const entityCount = RAW.filter(d => BILATERAL_DICS.has(d.name)).length;
+  const infoEl = document.getElementById('bil-dl-info');
+  if(infoEl) infoEl.textContent = '↓ ' + entityCount + ' entities · ' + rangeIdxs().length + ' months';
+  triggerXLSX(rows, 'ISTS_Bilateral_' + rangeSlug() + '.xlsx', 'Bilateral Charges');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MONTHLY TABLE TAB
+// ══════════════════════════════════════════════════════════════════════════════
+
+function populateMonthTableDropdown(){
+  const sel = document.getElementById('mt-month-sel');
+  if(!sel) return;
+  const current = sel.value;
+  sel.innerHTML = ALL_MONTH_LABELS.map((l,i) =>
+    '<option value="'+i+'"'+( i===slEnd?' selected':'')+'>'+l+'</option>'
+  ).join('');
+  if(current !== '' && sel.querySelector('option[value="'+current+'"]')){
+    sel.value = current;
+  }
+}
+
+function renderMonthTable(){
+  const sel     = document.getElementById('mt-month-sel');
+  const regSel  = document.getElementById('mt-region-sel');
+  const thead   = document.getElementById('mt-thead');
+  const tbody   = document.getElementById('mt-tbody');
+  const tfoot   = document.getElementById('mt-tfoot');
+  const countEl = document.getElementById('mt-count');
+  if(!sel || !tbody) return;
+
+  const mi     = parseInt(sel.value);
+  const region = regSel ? regSel.value : 'all';
+
+  // Filter DICs for this month that have any data
+  let rows = RAW.filter(d => {
+    const m = d['m'+mi];
+    if(!m) return false;
+    if(region !== 'all' && d.region !== region) return false;
+    const total = COMP_KEYS.reduce((s,k)=>(s+(m[k]||0)),0);
+    return total > 0;
+  });
+
+  // Sort: region → name
+  rows.sort((a,b) => {
+    const regionOrder = {NR:1,WR:2,SR:3,ER:4,NER:5};
+    const ro = (regionOrder[a.region]||9) - (regionOrder[b.region]||9);
+    if(ro !== 0) return ro;
+    return a.name.localeCompare(b.name);
+  });
+
+  if(countEl) countEl.textContent = rows.length + ' entities';
+
+  // Active component keys for this table
+  const keys   = ['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'];
+  const labels = {
+    ac_ubc:'AC-UBC', ac_bc:'AC-BC', nc_re:'NC-RE',
+    nc_hvdc:'NC-HVDC', rc:'RC', trx:'TC', bil:'Bilateral'
+  };
+
+  // ── Header ─────────────────────────────────────────────────────────────────
+  const RCOL = {NR:'#4f8ef7',WR:'#2ecf8e',SR:'#f7614f',ER:'#f7c24f',NER:'#a78bf7'};
+  const thStyle = 'padding:10px 12px;text-align:right;font-size:9px;font-weight:700;'+
+    'letter-spacing:.8px;text-transform:uppercase;color:var(--muted);'+
+    'border-bottom:2px solid var(--border);white-space:nowrap;position:sticky;top:0;background:var(--surface);';
+  const thStyleL = thStyle + 'text-align:left;';
+
+  thead.innerHTML = '<tr>'+
+    '<th style="'+thStyleL+'min-width:200px;">#&nbsp;&nbsp;DIC Name</th>'+
+    '<th style="'+thStyle+'width:60px;">Region</th>'+
+    '<th style="'+thStyle+'width:80px;">GNAsh (MW)</th>'+
+    keys.map(k=>'<th style="'+thStyle+'min-width:110px;">'+labels[k]+'</th>').join('')+
+    '<th style="'+thStyle+'min-width:120px;color:var(--text);">Total (₹)</th>'+
+    '</tr>';
+
+  // ── Body ───────────────────────────────────────────────────────────────────
+  const tdStyle = 'padding:8px 12px;text-align:right;font-size:11px;border-bottom:1px solid var(--border)22;';
+  const tdStyleL = tdStyle + 'text-align:left;';
+  const fmtRs = v => v ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
+  const fmtRsFull = v => v ? Math.round(v).toLocaleString('en-IN') : '—';
+
+  // Group by region for subtle separators
+  let lastRegion = '';
+  let sNo = 1;
+  const totals = {};
+  keys.forEach(k => totals[k] = 0);
+  let grandTotal = 0;
+
+  tbody.innerHTML = rows.map(d => {
+    const m = d['m'+mi] || {};
+    const rowTotal = keys.reduce((s,k)=>s+(m[k]||0), 0);
+    keys.forEach(k => totals[k] += (m[k]||0));
+    grandTotal += rowTotal;
+
+    const regionChanged = d.region !== lastRegion;
+    lastRegion = d.region;
+    const rCol = RCOL[d.region] || '#888';
+    const rowBg = regionChanged ? 'background:'+rCol+'08;' : '';
+
+    return '<tr style="'+rowBg+'transition:background .1s;" '+
+      'onmouseenter="this.style.background=\'var(--surface2)\'" '+
+      'onmouseleave="this.style.background=\''+( regionChanged ? rCol+'08' : 'transparent')+'\'">'+
+      '<td style="'+tdStyleL+'">'+
+        '<span style="color:var(--muted);font-size:9px;margin-right:8px;">'+sNo+++'</span>'+
+        '<span style="color:var(--text);">'+d.name+'</span>'+
+      '</td>'+
+      '<td style="'+tdStyle+'">'+
+        '<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;'+
+        'background:'+rCol+'22;color:'+rCol+';">'+d.region+'</span>'+
+      '</td>'+
+      '<td style="'+tdStyle+'color:var(--muted);">'+(d.gnash||'—')+'</td>'+
+      keys.map(k => {
+        const v = m[k]||0;
+        return '<td style="'+tdStyle+(v>0?'color:var(--text);':'color:var(--muted)22;')+'" '+
+          '">'+fmtRs(v)+'</td>';
+      }).join('')+
+      '<td style="'+tdStyle+'font-weight:700;color:var(--text);">'+fmtRs(rowTotal)+'</td>'+
+      '</tr>';
+  }).join('');
+
+  // ── Footer totals ──────────────────────────────────────────────────────────
+  const tfStyle = 'padding:10px 12px;text-align:right;font-size:11px;font-weight:700;'+
+    'border-top:2px solid var(--border);color:var(--text);background:var(--surface);';
+  const tfStyleL = tfStyle + 'text-align:left;';
+
+  tfoot.innerHTML = '<tr>'+
+    '<td style="'+tfStyleL+'">TOTAL ('+rows.length+' entities)</td>'+
+    '<td style="'+tfStyle+'">—</td>'+
+    '<td style="'+tfStyle+'">—</td>'+
+    keys.map(k=>'<td style="'+tfStyle+'">'+fmtRs(totals[k])+'</td>').join('')+
+    '<td style="'+tfStyle+'font-size:13px;">'+fmtRs(grandTotal)+'</td>'+
+    '</tr>';
+}
+
+// ── Downloads ─────────────────────────────────────────────────────────────────
+function buildMonthTableRows(){
+  const sel    = document.getElementById('mt-month-sel');
+  const regSel = document.getElementById('mt-region-sel');
+  if(!sel) return [];
+  const mi     = parseInt(sel.value);
+  const region = regSel ? regSel.value : 'all';
+  const label  = ALL_MONTH_LABELS[mi] || '';
+  const keys   = ['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'];
+  const hdrLabels = ['AC-UBC (₹)','AC-BC (₹)','NC-RE (₹)','NC-HVDC (₹)','RC (₹)','TC (₹)','Bilateral (₹)'];
+
+  let rows = RAW.filter(d => {
+    const m = d['m'+mi];
+    if(!m) return false;
+    if(region !== 'all' && d.region !== region) return false;
+    return keys.reduce((s,k)=>s+(m[k]||0),0) > 0;
+  }).sort((a,b)=>{
+    const ro={NR:1,WR:2,SR:3,ER:4,NER:5};
+    return ((ro[a.region]||9)-(ro[b.region]||9)) || a.name.localeCompare(b.name);
+  });
+
+  const out = [['Billing Month: '+label, '', '', ...Array(hdrLabels.length+1).fill('')]];
+  out.push(['DIC Name','Region','GNAsh (MW)',...hdrLabels,'Total (₹)']);
+
+  const totals = {};
+  keys.forEach(k=>totals[k]=0);
+  let grand = 0;
+
+  rows.forEach((d,i) => {
+    const m = d['m'+mi]||{};
+    const rowTotal = keys.reduce((s,k)=>s+(m[k]||0),0);
+    keys.forEach(k=>totals[k]+=(m[k]||0));
+    grand += rowTotal;
+    out.push([
+      d.name, d.region, d.gnash||0,
+      ...keys.map(k=>rupees(m[k]||0)),
+      rupees(rowTotal)
+    ]);
+  });
+
+  out.push([]);
+  out.push(['TOTAL ('+rows.length+' entities)','','', ...keys.map(k=>rupees(totals[k])), rupees(grand)]);
+  return out;
+}
+
+function downloadMonthTableCSV(){
+  const rows = buildMonthTableRows();
+  if(!rows.length) return;
+  const sel = document.getElementById('mt-month-sel');
+  const label = ALL_MONTH_LABELS[parseInt(sel.value)] || 'month';
+  triggerCSV(rows, 'ISTS_Monthly_Table_'+label.replace("'",'')+'.csv');
+}
+
+function downloadMonthTableXLSX(){
+  const rows = buildMonthTableRows();
+  if(!rows.length) return;
+  const sel = document.getElementById('mt-month-sel');
+  const label = ALL_MONTH_LABELS[parseInt(sel.value)] || 'month';
+  triggerXLSX(rows, 'ISTS_Monthly_Table_'+label.replace("'",'')+'.xlsx', label);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 
 </script>
 </body>

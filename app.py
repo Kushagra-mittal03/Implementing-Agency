@@ -38,8 +38,10 @@ def get_db():
         try:
             g.db = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
             g.db.row_factory = sqlite3.Row
-            g.db.execute("PRAGMA journal_mode=WAL")
-            g.db.execute("PRAGMA busy_timeout=5000")
+            g.db.execute("PRAGMA journal_mode=DELETE")
+            g.db.execute("PRAGMA synchronous=FULL")
+            g.db.execute("PRAGMA busy_timeout=10000")
+            print(f"[DB] Connected: {DB_PATH}")
         except sqlite3.OperationalError as e:
             raise RuntimeError(
                 f"Cannot open database: {e}\n"
@@ -51,6 +53,10 @@ def get_db():
 def close_db(e=None):
     db = g.pop('db', None)
     if db is not None:
+        try:
+            db.execute("PRAGMA wal_checkpoint(FULL)")
+        except Exception:
+            pass
         db.close()
 
 def month_idx(year, month):
@@ -92,12 +98,23 @@ def api_meta():
     for m in months:
         m['mi'] = month_idx(m['year'], m['month'])
 
+    # Identify bilateral-only DICs (every month has zero AC charges)
+    bil_only_rows = db.execute("""
+        SELECT dic_name
+        FROM charges
+        GROUP BY dic_name
+        HAVING SUM(ac_ubc+ac_bc+nc_re+nc_hvdc+rc+trx) = 0
+           AND SUM(bil) > 0
+    """).fetchall()
+    bilateral_only = [r['dic_name'] for r in bil_only_rows]
+
     return jsonify({
-        'dics':         dics,
-        'months':       months,
-        'monthLabels':  MONTH_LABELS,
-        'firstMi':      months[0]['mi']  if months else 0,
-        'lastMi':       months[-1]['mi'] if months else 0,
+        'dics':          dics,
+        'months':        months,
+        'monthLabels':   MONTH_LABELS,
+        'firstMi':       months[0]['mi']  if months else 0,
+        'lastMi':        months[-1]['mi'] if months else 0,
+        'bilateralOnly': bilateral_only,
     })
 
 
@@ -292,24 +309,53 @@ def api_upload():
     f    = request.files['file']
     name = f.filename.lower()
 
-    # Save to temp file
+    # Save to temp file (delete=False so we control deletion timing)
     suffix = '.pdf' if name.endswith('.pdf') else '.xlsx'
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        f.save(tmp.name)
-        tmp_path = tmp.name
-
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     try:
+        os.close(tmp_fd)           # close the fd so the file can be written + read freely
+        f.save(tmp_path)
+
         if name.endswith('.pdf'):
             from posoco_parser import parse_pdf_text
             records = parse_pdf_text(tmp_path, verbose=False)
-        elif name.endswith(('.xlsx', '.csv')):
+        elif name.endswith(('.xlsx', '.xls')):
+            from excel_parser import parse_excel
+            parsed = parse_excel(tmp_path, verbose=False)
+            records = []
+            for r in parsed:
+                records.append({
+                    'name':    r['name'],
+                    'region':  r.get('region', 'NR'),
+                    'gnash':   r.get('gnash', 0),
+                    'year':    r['year'],
+                    'month':   r['month'],
+                    'ac_ubc':  r.get('ac_ubc', 0),
+                    'ac_bc':   r.get('ac_bc',  0),
+                    'nc_re':   r.get('nc_re',  0),
+                    'nc_hvdc': r.get('nc_hvdc', 0),
+                    'rc':      r.get('rc',     0),
+                    'trx':     r.get('trx',    0),
+                    'bil':     r.get('bil',    0),
+                })
+            print(f"[api_upload] excel_parser returned {len(records)} records")
+        elif name.endswith('.csv'):
             records = _parse_excel(tmp_path)
         else:
-            return jsonify({'error': 'Unsupported file type. Use .pdf or .xlsx'}), 400
+            try: os.unlink(tmp_path)
+            except: pass
+            return jsonify({'error': 'Unsupported file type. Use .xlsx or .csv'}), 400
+
     except Exception as e:
+        try: os.unlink(tmp_path)
+        except: pass
         return jsonify({'error': str(e)}), 500
-    finally:
+
+    # Parsing done — now safe to delete the temp file
+    try:
         os.unlink(tmp_path)
+    except Exception:
+        pass  # Not critical if cleanup fails
 
     if not records:
         return jsonify({'error': 'No records parsed from file'}), 400
@@ -339,22 +385,29 @@ def api_upload():
             'clean_count': len(clean),
         })
 
-    # Insert records (clean + conflicts if overwrite=true)
-    to_insert  = clean + (conflicts if overwrite else [])
-    inserted   = skipped = errors = 0
+    # Insert using a dedicated connection to guarantee commit persists to disk
+    to_insert = clean + (conflicts if overwrite else [])
+    inserted  = skipped = errors = 0
+
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("PRAGMA synchronous=FULL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("BEGIN")
 
     for r in to_insert:
         try:
-            db.execute("""
+            conn.execute("""
                 INSERT INTO charges
                     (dic_name, region, gnash, year, month,
                      ac_ubc, ac_bc, nc_re, nc_hvdc, rc, trx, bil)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(dic_name, year, month) DO UPDATE SET
-                    region=excluded.region, gnash=excluded.gnash,
-                    ac_ubc=excluded.ac_ubc, ac_bc=excluded.ac_bc,
-                    nc_re=excluded.nc_re,   nc_hvdc=excluded.nc_hvdc,
-                    rc=excluded.rc,         trx=excluded.trx,
+                    region=excluded.region,  gnash=excluded.gnash,
+                    ac_ubc=excluded.ac_ubc,  ac_bc=excluded.ac_bc,
+                    nc_re=excluded.nc_re,    nc_hvdc=excluded.nc_hvdc,
+                    rc=excluded.rc,          trx=excluded.trx,
                     bil=excluded.bil
             """, (r['name'], r.get('region','NR'), r.get('gnash',0),
                   r['year'], r['month'],
@@ -362,7 +415,7 @@ def api_upload():
                   r.get('nc_re',0),  r.get('nc_hvdc',0),
                   r.get('rc',0),     r.get('trx',0),
                   r.get('bil',0)))
-            db.execute("""
+            conn.execute("""
                 INSERT INTO dics (name, region, gnash) VALUES (?,?,?)
                 ON CONFLICT(name) DO UPDATE SET
                     region=excluded.region,
@@ -371,13 +424,18 @@ def api_upload():
             inserted += 1
         except Exception as e:
             errors += 1
+            print(f"[api_upload] row error: {e}")
 
-    db.commit()
+    conn.execute("COMMIT")
+    total = conn.execute("SELECT COUNT(*) FROM charges").fetchone()[0]
+    conn.close()
+    print(f"[api_upload] Done — inserted={inserted}, skipped={skipped}, errors={errors}, total={total}")
     return jsonify({
-        'status':   'ok',
-        'inserted': inserted,
-        'skipped':  skipped,
-        'errors':   errors,
+        'status':      'ok',
+        'inserted':    inserted,
+        'skipped':     skipped,
+        'errors':      errors,
+        'total_in_db': total,
     })
 
 
@@ -510,12 +568,21 @@ def api_raw_data():
                 obj[f'm{slot}'] = dict(empty_slot)
         raw.append(obj)
     
+    # Bilateral-only DICs
+    bil_only = [r['dic_name'] for r in db.execute("""
+        SELECT dic_name FROM charges
+        GROUP BY dic_name
+        HAVING SUM(ac_ubc+ac_bc+nc_re+nc_hvdc+rc+trx) = 0
+           AND SUM(bil) > 0
+    """).fetchall()]
+
     return jsonify({
-        'monthLabels': labels,
-        'firstMi': first_mi,
-        'raw': raw,
-        'customCols': custom_cols,   # extra columns beyond the 7 built-ins
-        'allCols': ['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'] + custom_cols,
+        'monthLabels':   labels,
+        'firstMi':       first_mi,
+        'raw':           raw,
+        'customCols':    custom_cols,
+        'allCols':       ['ac_ubc','ac_bc','nc_re','nc_hvdc','rc','trx','bil'] + custom_cols,
+        'bilateralOnly': bil_only,
     })
 
 
@@ -561,7 +628,10 @@ def api_add_column():
     if not label:
         label = col.replace('_', ' ').title()
 
-    db = get_db()
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("PRAGMA synchronous=FULL")
+    db = conn
 
     # Check if already exists
     existing = [c['name'] for c in db.execute("PRAGMA table_info(charges)").fetchall()]
@@ -595,7 +665,11 @@ def api_set_value():
     if not re.match(r'^[a-z][a-z0-9_]{1,29}$', col):
         return jsonify({'error': 'Invalid column name'}), 400
 
-    db = get_db()
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("PRAGMA synchronous=FULL")
+    conn.row_factory = sqlite3.Row
+    db = conn
     existing = [c['name'] for c in db.execute("PRAGMA table_info(charges)").fetchall()]
     if col not in existing or col in {'id','dic_name','region','gnash','year','month'}:
         return jsonify({'error': f"Column '{col}' does not exist or is protected"}), 400
@@ -605,7 +679,7 @@ def api_set_value():
             f"UPDATE charges SET {col}=? WHERE dic_name=? AND year=? AND month=?",
             (int(value), dic, int(year), int(month))
         )
-        db.commit()
+        conn.execute('COMMIT')
         rows = db.execute("SELECT changes()").fetchone()[0]
         return jsonify({'ok': True, 'rows_updated': rows})
     except Exception as e:
@@ -632,9 +706,7 @@ def handle_exception(e):
 def api_save_rows():
     """
     Persist pre-parsed rows (from client-side Excel/manual entry) to SQLite.
-    Body: { "rows": [...], "overwrite": true/false }
-    Each row: { dic_name, region, gnash, year, month,
-                ac_ubc, ac_bc, nc_re, nc_hvdc, rc, trx, bil }
+    Uses a dedicated connection (not g.db) to guarantee commit isolation.
     """
     data      = request.get_json()
     rows      = data.get('rows', [])
@@ -643,13 +715,31 @@ def api_save_rows():
     if not rows:
         return jsonify({'error': 'No rows provided'}), 400
 
-    db = get_db()
+    print(f"[save_rows] Received {len(rows)} rows, overwrite={overwrite}")
+    print(f"[save_rows] Writing to: {DB_PATH}")
+    if rows:
+        r0 = rows[0]
+        print(f"[save_rows] First row sample: dicName={r0.get('dicName') or r0.get('dic_name')}, year={r0.get('year')}, month={r0.get('month')}, ac_ubc={r0.get('ac_ubc')}")
+
+    # Use a dedicated connection — completely independent of the per-request g.db
+    # This avoids any thread/transaction isolation issues
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("PRAGMA synchronous=FULL")   # fsync after every commit
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("BEGIN")
+
+    before_jul = conn.execute("SELECT COUNT(*) FROM charges WHERE year=2026 AND month=7").fetchone()[0]
+    print(f"[save_rows] July 2026 rows BEFORE insert: {before_jul}")
+
+    db = conn
     inserted = skipped = errors = 0
 
     for r in rows:
         try:
             if overwrite:
-                db.execute("""
+                conn.execute("""
                     INSERT INTO charges
                         (dic_name, region, gnash, year, month,
                          ac_ubc, ac_bc, nc_re, nc_hvdc, rc, trx, bil)
@@ -671,7 +761,7 @@ def api_save_rows():
                     int(r.get('bil',     0)),
                 ))
             else:
-                db.execute("""
+                conn.execute("""
                     INSERT OR IGNORE INTO charges
                         (dic_name, region, gnash, year, month,
                          ac_ubc, ac_bc, nc_re, nc_hvdc, rc, trx, bil)
@@ -687,11 +777,11 @@ def api_save_rows():
                     int(r.get('bil',     0)),
                 ))
 
-            changed = db.execute('SELECT changes()').fetchone()[0]
+            changed = conn.execute('SELECT changes()').fetchone()[0]
             if changed:
                 inserted += 1
                 dic_name = r.get('dicName') or r.get('dic_name')
-                db.execute("""
+                conn.execute("""
                     INSERT INTO dics (name, region, gnash) VALUES (?,?,?)
                     ON CONFLICT(name) DO UPDATE SET
                         region=excluded.region,
@@ -704,14 +794,47 @@ def api_save_rows():
         except Exception as e:
             errors += 1
             app.logger.error(f"save_rows error on row {r}: {e}")
+            print(f"[save_rows] Row error: {e}")
 
-    db.commit()
+    after_jul = conn.execute("SELECT COUNT(*) FROM charges WHERE year=2026 AND month=7").fetchone()[0]
+    print(f"[save_rows] July 2026 rows AFTER insert (pre-commit): {after_jul}")
+    conn.execute("COMMIT")
+    total_now = conn.execute("SELECT COUNT(*) FROM charges").fetchone()[0]
+    jul_final = conn.execute("SELECT COUNT(*) FROM charges WHERE year=2026 AND month=7").fetchone()[0]
+    conn.close()
+    print(f"[save_rows] Done — inserted={inserted}, skipped={skipped}, errors={errors}")
+    print(f"[save_rows] July 2026 rows AFTER commit: {jul_final}")
+    print(f"[save_rows] Total records in DB now: {total_now}")
     return jsonify({
-        'status':   'ok',
-        'inserted': inserted,
-        'skipped':  skipped,
-        'errors':   errors,
+        'status':      'ok',
+        'inserted':    inserted,
+        'skipped':     skipped,
+        'errors':      errors,
+        'total_in_db': total_now,
     })
+
+
+@app.route('/api/db_info')
+def api_db_info():
+    """Diagnostic endpoint — shows DB path, record count, and last inserted month."""
+    try:
+        db = get_db()
+        total    = db.execute("SELECT COUNT(*) FROM charges").fetchone()[0]
+        dics     = db.execute("SELECT COUNT(DISTINCT dic_name) FROM charges").fetchone()[0]
+        last_row = db.execute(
+            "SELECT year, month FROM charges ORDER BY year DESC, month DESC LIMIT 1"
+        ).fetchone()
+        last_month = f"{last_row['year']}-{last_row['month']}" if last_row else "none"
+        return jsonify({
+            'db_path':    DB_PATH,
+            'db_exists':  os.path.exists(DB_PATH),
+            'db_size_kb': round(os.path.getsize(DB_PATH) / 1024, 1) if os.path.exists(DB_PATH) else 0,
+            'total_records': total,
+            'unique_dics':   dics,
+            'latest_month':  last_month,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'db_path': DB_PATH}), 500
 
 if __name__ == '__main__':
     print(f"\n  ISTS Dashboard")

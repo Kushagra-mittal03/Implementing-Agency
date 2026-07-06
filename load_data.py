@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-load_data.py  —  Load POSOCO ISTS Excel workbooks into SQLite database.
+load_data.py  —  Load Grid India ISTS Excel workbooks into SQLite database.
 
 Adds new data each time. Skips months already in the database.
 

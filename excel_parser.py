@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-excel_parser.py  —  Parse POSOCO ISTS billing Excel workbooks.
+excel_parser.py  —  Parse Grid India ISTS billing Excel workbooks.
 
 Each workbook has one sheet per month (e.g. "Jan'25", "Feb'25" ...).
 Each sheet has:
@@ -209,7 +209,7 @@ def parse_sheet(df, year, month):
 
 def parse_excel(filepath, verbose=True):
     """
-    Parse a POSOCO ISTS billing Excel workbook.
+    Parse a Grid India ISTS billing Excel workbook.
 
     Each sheet must be named with a month/year (e.g. "Jan'25", "Feb'25").
     Returns a list of dicts — one per DIC per month — with keys:
@@ -232,13 +232,33 @@ def parse_excel(filepath, verbose=True):
 
     for sheet_name in xl.sheet_names:
         year, month = parse_sheet_name(sheet_name)
+
+        # Read sheet first (needed for title fallback)
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+
+        # If sheet name doesn't give month/year, try reading title from row 0
+        if year is None:
+            try:
+                title = str(df.iloc[0, 0]).replace('\xa0', ' ')
+                m = re.search(
+                    r'billing\s+month\s+of\s+(\w+)[,\s]+(\d{4})',
+                    title, re.IGNORECASE
+                )
+                if m:
+                    mon_name = m.group(1).lower()[:3]
+                    yr_num   = int(m.group(2))
+                    if mon_name in MONTH_MAP:
+                        month = MONTH_MAP[mon_name]
+                        year  = yr_num
+                        if verbose:
+                            print(f"  Sheet '{sheet_name}' — month/year from title: {month}/{year}")
+            except Exception:
+                pass
+
         if year is None:
             if verbose:
                 print(f"  ⚠  Skipping sheet '{sheet_name}' — cannot parse month/year")
             continue
-
-        # Read with no header — we handle headers manually
-        df = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
 
         records = parse_sheet(df, year, month)
         all_records.extend(records)
