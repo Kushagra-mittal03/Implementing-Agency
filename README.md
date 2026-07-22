@@ -28,8 +28,7 @@ dashboard\
 │   └── excel_parser.py
 ├── scripts\
 │   ├── load_data.py
-│   ├── merge_duplicates.py
-│   └── verify_db.py
+│
 ├── data\                   ← Place Grid India Excel files here
 └── templates\
     └── index.html          ← The dashboard interface
